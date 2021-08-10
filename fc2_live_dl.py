@@ -70,7 +70,7 @@ def parse_ffmpeg_stats(stderr):
 
 def sanitize_filename(fname):
     for c in '<>:"/\\|?*':
-        fname.replace(c, '_')
+        fname = fname.replace(c, '_')
     return fname
 
 class FC2LiveDL():
@@ -79,12 +79,15 @@ class FC2LiveDL():
     _hls_info = []
     _is_live = None
     _finfo = None
+    _chat_file = None
+    _chat_msg_count = 0
 
     # Default params
     params = {
         'quality': '3Mbps',
         'latency': 'mid',
-        'outtmpl': '%(channel_id)s-%(date)s-%(title)s.ts',
+        'outtmpl': '%(channel_id)s-%(date)s-%(title)s.%(ext)s',
+        'save_chat': False,
     }
 
     def __init__(self, params=None):
@@ -98,13 +101,29 @@ class FC2LiveDL():
             'channel_id': '',
             'channel_name': '',
             'date': datetime.now().strftime('%F_%H%M%S'),
-            'title': ''
+            'title': '',
+            'ext': ''
         }
         self.params['outtmpl'] % self._finfo
 
         self._channel_id = self.params['url'].split('https://live.fc2.com')[1].split('/')[1]
         self._get_member_details()
         self._target_filename = self._channel_id + '_' + str(int(time.time())) + '.ts'
+
+        if self.params['save_chat']:
+            self._finfo['ext'] = 'fc2chat.json'
+            chat_fname = self.params['outtmpl'] % self._finfo
+            print('[fc2] saving chat to {}'.format(chat_fname))
+            self._chat_file = open(chat_fname, 'w')
+            self._chat_file.write(json.dumps({
+                'file': 'fc2-live-chat',
+                'version': '1'
+            }))
+            self._chat_file.write('\n')
+
+    def __del__(self):
+        if self._chat_file is not None:
+            self._chat_file.close()
 
     def _get_websocket_url(self):
         # Fetch websocket connection info
@@ -124,6 +143,15 @@ class FC2LiveDL():
         ws_url = ws_info['url']
         control_token = ws_info['control_token']
         return ws_url + '?control_token=' + control_token
+
+    def _dump_chat(self, chat_msgs):
+        if not self.params['save_chat']:
+            return False
+
+        for msg in chat_msgs:
+            self._chat_file.write(json.dumps(msg))
+            self._chat_file.write('\n')
+            self._chat_msg_count += 1
 
     async def _handle_websocket(self, ws):
         print('[ws] connected')
@@ -158,6 +186,9 @@ class FC2LiveDL():
                     raise Exception('Broadcast has switched to paid program')
                 elif code == 4512:
                     raise Exception('Disconnected: multiple connections')
+            elif msg['name'] == 'comment':
+                if self.params['save_chat']:
+                    self._dump_chat(msg['arguments']['comments'])
 
             # Send heartbeat every 30 seconds
             if time.time() - last_heartbeat > 30:
@@ -233,6 +264,7 @@ class FC2LiveDL():
             playlist = self._hls_info[0]
             print('[download] falling back to the next best quality: {}'.format(self._hls_info[0]['mode']))
 
+        self._finfo['ext'] = 'ts'
         fname = self.params['outtmpl'] % self._finfo
         if fname.startswith('-'):
             fname = '_' + fname
@@ -256,7 +288,10 @@ class FC2LiveDL():
                 if len(stderr) > 0:
                     # Parse ffmpeg's output
                     stats = parse_ffmpeg_stats(stderr)
-                    print('[download] {} {}\r'.format(stats['time'], stats['size']), end='')
+                    print('[download] {} {}'.format(stats['time'], stats['size']), end='')
+                    if self.params['save_chat']:
+                        print(', {} chat msg'.format(self._chat_msg_count), end='')
+                    print('\r', end='')
             except asyncio.IncompleteReadError:
                 print('')
                 break
@@ -332,13 +367,20 @@ def main(args):
     parser.add_argument(
         '-o', '--output',
         default=FC2LiveDL.params['outtmpl'],
-        help='''A|Set the output filename INCLUDING the extension. Supports formatting options similar to youtube-dl. Default is '{}'
+        help='''A|Set the output filename format. Supports formatting options similar to youtube-dl. Default is '{}'
 
 Available format options:
     channel_id (string): ID of the broadcast
     channel_name (string): broadcaster's profile name
     date (string): current date and time in the format YYYY-MM-DD_HHMMSS
+    ext (string): file extension
     title (string): title of the live broadcast'''.format(FC2LiveDL.params['outtmpl'].replace('%', '%%'))
+    )
+
+    parser.add_argument(
+        '--save-chat',
+        action='store_true',
+        help='Save live chat into a json file.'
     )
 
     # Init fc2-live-dl
@@ -348,6 +390,7 @@ Available format options:
         'quality': args.quality,
         'latency': args.latency,
         'outtmpl': args.output,
+        'save_chat': args.save_chat,
     })
 
     # Set up asyncio loop
