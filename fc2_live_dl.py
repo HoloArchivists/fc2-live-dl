@@ -117,7 +117,10 @@ class FC2LiveDL():
             self._chat_file = open(chat_fname, 'w')
             self._chat_file.write(json.dumps({
                 'file': 'fc2-live-chat',
-                'version': '1'
+                'version': '1',
+                'metadata': {
+                    'time_now_ms': int(time.time() * 1000)
+                }
             }))
             self._chat_file.write('\n')
 
@@ -396,9 +399,10 @@ Available format options:
     # Set up asyncio loop
     loop = asyncio.get_event_loop()
     task = asyncio.ensure_future(fc2.start_download())
-    for sig in [signal.SIGINT, signal.SIGTERM]:
-        loop.add_signal_handler(sig, task.cancel)
     try:
+        loop.run_until_complete(task)
+    except KeyboardInterrupt:
+        task.cancel()
         loop.run_until_complete(task)
     finally:
         loop.close()
