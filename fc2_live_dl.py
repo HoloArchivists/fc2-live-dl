@@ -38,6 +38,14 @@ STREAM_LATENCY = {
     'mid': 2,
 }
 
+def dict_search(haystack, needle):
+    return list(haystack.keys())[list(haystack.values()).index(needle)]
+
+def format_mode(mode):
+    latency = dict_search(STREAM_LATENCY, mode % 10)
+    quality = dict_search(STREAM_QUALITY, mode // 10 * 10)
+    return quality, latency
+
 def parse_ffmpeg_stats(stderr):
     stats = {
         'frame': 0,
@@ -141,6 +149,9 @@ class FC2LiveDL():
                         for playlist in playlists:
                             if playlist in msg['arguments']:
                                 self._hls_info.extend(msg['arguments'][playlist])
+
+                        # Sort from best quality
+                        self._hls_info = sorted(self._hls_info, key=lambda x: x['mode'] - 90 if x['mode'] >= 90 else x['mode'])[::-1]
                         print('[ws] received HLS info')
                     elif msg['name'] == 'control_disconnection':
                         code = msg['arguments']['code']
@@ -197,27 +208,31 @@ class FC2LiveDL():
         mode += STREAM_QUALITY[self.params['quality']]
         mode += STREAM_LATENCY[self.params['latency']]
 
-        hls_url = None
-        for playlist in self._hls_info:
-            if playlist['mode'] == mode:
-                hls_url = playlist['url']
+        playlist = None
+        for p in self._hls_info:
+            if p['mode'] == mode:
+                playlist = p
 
-        if hls_url is None:
+        # Requested mode not found, fallback to the next best quality
+        if playlist is None:
             print('[download] requested mode not available: {}'.format(mode))
             print('[download] available formats are: {}'.format(', '.join([str(x['mode']) for x in self._hls_info])))
-            return False
+            playlist = self._hls_info[0]
+            print('[download] falling back to the next best quality: {}'.format(self._hls_info[0]['mode']))
 
         fname = self.params['outtmpl'] % self._finfo
         if fname.startswith('-'):
             fname = '_' + fname
 
+        quality, latency = format_mode(playlist['mode'])
+        print('[download] downloading {} at {} latency ({})'.format(quality, latency, playlist['mode']))
         print('[download] saving to {}'.format(fname))
         print('Starting download...\r', end='')
 
         ffmpeg = await asyncio.create_subprocess_exec(
             FFMPEG_BIN,
             '-hide_banner', '-loglevel', 'fatal', '-stats',
-            '-i', hls_url, '-c', 'copy', fname,
+            '-i', playlist['url'], '-c', 'copy', fname,
             stdout=asyncio.subprocess.DEVNULL,
             stderr=asyncio.subprocess.PIPE
         )
@@ -228,7 +243,9 @@ class FC2LiveDL():
                 if len(stderr) > 0:
                     # Parse ffmpeg's output
                     stats = parse_ffmpeg_stats(stderr)
-                    print('\r[download] {} {}'.format(stats['time'], stats['size']), end='')
+                    print('[download] {} {}\r'.format(stats['time'], stats['size']), end='')
+            except asyncio.IncompleteReadError as ex:
+                break
             except Exception as ex:
                 print(repr(ex))
 

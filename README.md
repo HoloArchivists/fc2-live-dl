@@ -35,3 +35,8 @@ optional arguments:
                             date (string): current date and time in the format YYYY-MM-DD_HHMMSS
                             title (string): title of the live broadcast
 ```
+
+## Notes
+
+- FC2 does not allow multiple connections, so you can't watch in the browser while downloading. You can instead preview the file being downloaded using `mpv` or `vlc`. Alternatively, log in with an account on your browser.
+- Recordings are saved as `.ts` by default. You can remux it to `mp4` using `ffmpeg -i path/to/file.ts -c copy -movflags faststart output.mp4`
