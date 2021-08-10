@@ -245,11 +245,13 @@ class FC2LiveDL():
                     stats = parse_ffmpeg_stats(stderr)
                     print('[download] {} {}\r'.format(stats['time'], stats['size']), end='')
             except asyncio.IncompleteReadError as ex:
+                print('')
                 break
             except Exception as ex:
+                print('')
                 print(repr(ex))
 
-        print('ffmpeg exited with code {}'.format(ffmpeg.returncode))
+        print('\nffmpeg exited with code {}'.format(ffmpeg.returncode))
 
     async def start_download(self):
         await asyncio.gather(
