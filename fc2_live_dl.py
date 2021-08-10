@@ -94,9 +94,10 @@ class FC2LiveDL():
 
         # Validate outtmpl
         self._finfo = {
-            'channel_id': 'a',
+            'channel_id': '',
+            'channel_name': '',
             'date': datetime.now().strftime('%F_%H%M%S'),
-            'title': 'a'
+            'title': ''
         }
         self.params['outtmpl'] % self._finfo
 
@@ -202,6 +203,7 @@ class FC2LiveDL():
                 }
             )
             self._member_details = req.json()
+            self._finfo['channel_name'] = sanitize_filename(self._member_details['data']['profile_data']['name'])
             self._finfo['channel_id'] = sanitize_filename(self._channel_id)
             self._finfo['title'] = sanitize_filename(self._member_details['data']['channel_data']['title'])
         return self._member_details
@@ -316,6 +318,7 @@ def main(args):
 
 Available format options:
     channel_id (string): ID of the broadcast
+    channel_name (string): broadcaster's profile name
     date (string): current date and time in the format YYYY-MM-DD_HHMMSS
     title (string): title of the live broadcast'''.format(FC2LiveDL.params['outtmpl'].replace('%', '%%'))
     )

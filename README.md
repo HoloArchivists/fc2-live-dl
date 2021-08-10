@@ -32,6 +32,7 @@ optional arguments:
 
                         Available format options:
                             channel_id (string): ID of the broadcast
+                            channel_name (string): broadcaster's profile name
                             date (string): current date and time in the format YYYY-MM-DD_HHMMSS
                             title (string): title of the live broadcast
 ```
