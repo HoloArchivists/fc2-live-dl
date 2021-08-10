@@ -104,9 +104,7 @@ class FC2LiveDL():
         self._get_member_details()
         self._target_filename = self._channel_id + '_' + str(int(time.time())) + '.ts'
 
-    async def _connect_to_websocket(self):
-        print('[ws] connecting')
-
+    def _get_websocket_url(self):
         # Fetch websocket connection info
         ws_info = requests.post(
             'https://live.fc2.com/api/getControlServer.php',
@@ -123,52 +121,63 @@ class FC2LiveDL():
         ).json()
         ws_url = ws_info['url']
         control_token = ws_info['control_token']
+        return ws_url + '?control_token=' + control_token
+
+    async def _handle_websocket(self, ws):
+        print('[ws] connected')
+
+        last_heartbeat = time.time()
+        msg_id = 0
+        while True:
+            msg = json.loads(await ws.recv())
+
+            if msg['name'] == 'connect_data':
+                self._is_live = True
+            elif msg['name'] == 'connect_complete':
+                msg_id += 1
+                await ws.send(json.dumps({
+                    'name': 'get_hls_information',
+                    'arguments': {},
+                    'id': msg_id
+                }))
+            elif msg['name'] == '_response_' and msg['id'] == 1:
+                playlists = ['playlists', 'playlists_high_latency', 'playlists_middle_latency']
+                self._hls_info = []
+                for playlist in playlists:
+                    if playlist in msg['arguments']:
+                        self._hls_info.extend(msg['arguments'][playlist])
+
+                # Sort from best quality
+                self._hls_info = sorted(self._hls_info, key=lambda x: x['mode'] - 90 if x['mode'] >= 90 else x['mode'])[::-1]
+                print('[ws] received HLS info')
+            elif msg['name'] == 'control_disconnection':
+                code = msg['arguments']['code']
+                if code == 4101:
+                    raise Exception('Broadcast has switched to paid program')
+                elif code == 4512:
+                    raise Exception('Disconnected: multiple connections')
+
+            # Send heartbeat every 30 seconds
+            if time.time() - last_heartbeat > 30:
+                last_heartbeat = time.time()
+                msg_id += 1
+                await ws.send(json.dumps({
+                    'name': 'heartbeat',
+                    'arguments': {},
+                    'id': msg_id
+                }))
+
+    async def _connect_to_websocket(self):
+        print('[ws] connecting')
+        ws_url = self._get_websocket_url()
 
         # Long-running websocket connection to keep the playlist alive
         try:
-            async with websockets.connect(ws_url + '?control_token=' + control_token) as ws:
-                print('[ws] connected')
-
-                last_heartbeat = time.time()
-                msg_id = 0
-                while True:
-                    msg = json.loads(await ws.recv())
-
-                    if msg['name'] == 'connect_data':
-                        self._is_live = True
-                    elif msg['name'] == 'connect_complete':
-                        msg_id += 1
-                        await ws.send(json.dumps({
-                            'name': 'get_hls_information',
-                            'arguments': {},
-                            'id': msg_id
-                        }))
-                    elif msg['name'] == '_response_' and msg['id'] == 1:
-                        playlists = ['playlists', 'playlists_high_latency', 'playlists_middle_latency']
-                        self._hls_info = []
-                        for playlist in playlists:
-                            if playlist in msg['arguments']:
-                                self._hls_info.extend(msg['arguments'][playlist])
-
-                        # Sort from best quality
-                        self._hls_info = sorted(self._hls_info, key=lambda x: x['mode'] - 90 if x['mode'] >= 90 else x['mode'])[::-1]
-                        print('[ws] received HLS info')
-                    elif msg['name'] == 'control_disconnection':
-                        code = msg['arguments']['code']
-                        if code == 4101:
-                            raise Exception('Broadcast has switched to paid program')
-                        elif code == 4512:
-                            raise Exception('Disconnected: multiple connections')
-
-                    # Send heartbeat every 30 seconds
-                    if time.time() - last_heartbeat > 30:
-                        last_heartbeat = time.time()
-                        msg_id += 1
-                        await ws.send(json.dumps({
-                            'name': 'heartbeat',
-                            'arguments': {},
-                            'id': msg_id
-                        }))
+            async with websockets.connect(ws_url) as ws:
+                try:
+                    await self._handle_websocket(ws)
+                except asyncio.CancelledError:
+                    await ws.close()
 
         except websockets.exceptions.ConnectionClosedError as ex:
             if ex.code == 4507:
@@ -254,6 +263,7 @@ class FC2LiveDL():
         print('\nffmpeg exited with code {}'.format(ffmpeg.returncode))
 
     async def start_download(self):
+        #  asyncio.get_event_loop().add_signal_handler()
         await asyncio.gather(
             self._connect_to_websocket(),
             self._wait_and_download()
@@ -282,7 +292,7 @@ class SmartFormatter(argparse.HelpFormatter):
             )
         return argparse.HelpFormatter._split_lines(self, text, width)
 
-async def main(args):
+def main(args):
     parser = argparse.ArgumentParser(formatter_class=SmartFormatter)
     parser.add_argument('url',
         help='A live.fc2.com URL.'
@@ -318,7 +328,7 @@ Available format options:
         'latency': args.latency,
         'outtmpl': args.output,
     })
-    await fc2.start_download()
+    asyncio.get_event_loop().run_until_complete(fc2.start_download())
 
 if __name__ == '__main__':
-    asyncio.get_event_loop().run_until_complete(main(sys.argv))
+    main(sys.argv)
