@@ -6,6 +6,7 @@ import asyncio
 import websockets
 import requests
 import subprocess
+import signal
 import time
 import json
 import sys
@@ -178,6 +179,7 @@ class FC2LiveDL():
                 try:
                     await self._handle_websocket(ws)
                 except asyncio.CancelledError:
+                    print('[ws] closing connection')
                     await ws.close()
 
         except websockets.exceptions.ConnectionClosedError as ex:
@@ -238,7 +240,7 @@ class FC2LiveDL():
         quality, latency = format_mode(playlist['mode'])
         print('[download] downloading {} at {} latency ({})'.format(quality, latency, playlist['mode']))
         print('[download] saving to {}'.format(fname))
-        print('Starting download...\r', end='')
+        print('[download] starting...\r', end='')
 
         ffmpeg = await asyncio.create_subprocess_exec(
             FFMPEG_BIN,
@@ -255,21 +257,34 @@ class FC2LiveDL():
                     # Parse ffmpeg's output
                     stats = parse_ffmpeg_stats(stderr)
                     print('[download] {} {}\r'.format(stats['time'], stats['size']), end='')
-            except asyncio.IncompleteReadError as ex:
+            except asyncio.IncompleteReadError:
                 print('')
                 break
+            except asyncio.CancelledError:
+                print('[download] stopping ffmpeg')
+                ffmpeg.send_signal(signal.SIGINT)
+                await ffmpeg.wait()
             except Exception as ex:
                 print('')
                 print(repr(ex))
 
-        print('\nffmpeg exited with code {}'.format(ffmpeg.returncode))
+        print('[download] ffmpeg exited with code {}'.format(ffmpeg.returncode))
 
     async def start_download(self):
-        #  asyncio.get_event_loop().add_signal_handler()
-        await asyncio.gather(
-            self._connect_to_websocket(),
-            self._wait_and_download()
-        )
+        task_ws = asyncio.ensure_future(self._connect_to_websocket())
+        task_dl = asyncio.ensure_future(self._wait_and_download())
+        tasks = [task_ws, task_dl]
+        try:
+            await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+        except asyncio.CancelledError:
+            print('\n[fc2] Interrupted by user')
+        finally:
+            for task in tasks:
+                if not task.done():
+                    task.cancel()
+
+            # Wait for cleanup
+            await asyncio.wait(tasks)
 
 class SmartFormatter(argparse.HelpFormatter):
     def flatten(self, input_array):
@@ -323,15 +338,25 @@ Available format options:
     title (string): title of the live broadcast'''.format(FC2LiveDL.params['outtmpl'].replace('%', '%%'))
     )
 
+    # Init fc2-live-dl
     args = parser.parse_args(args[1:])
-
     fc2 = FC2LiveDL({
         'url': args.url,
         'quality': args.quality,
         'latency': args.latency,
         'outtmpl': args.output,
     })
-    asyncio.get_event_loop().run_until_complete(fc2.start_download())
+
+    # Set up asyncio loop
+    loop = asyncio.get_event_loop()
+    task = asyncio.ensure_future(fc2.start_download())
+    for sig in [signal.SIGINT, signal.SIGTERM]:
+        loop.add_signal_handler(sig, task.cancel)
+    try:
+        loop.run_until_complete(task)
+    finally:
+        loop.close()
+        print('[fc2] finished')
 
 if __name__ == '__main__':
     main(sys.argv)
