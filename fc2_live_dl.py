@@ -268,6 +268,9 @@ class FC2LiveDL():
                 print('')
                 print(repr(ex))
 
+        print('[download] ffmpeg closing\r', end='')
+        if ffmpeg.returncode is None:
+            await ffmpeg.wait()
         print('[download] ffmpeg exited with code {}'.format(ffmpeg.returncode))
 
     async def start_download(self):
