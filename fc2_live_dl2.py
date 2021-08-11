@@ -3,9 +3,7 @@
 from datetime import datetime
 import argparse
 import asyncio
-import websockets
 import aiohttp
-import subprocess
 import signal
 import time
 import json
@@ -21,24 +19,6 @@ ABOUT = {
     'url': 'https://github.com/hizkifw/fc2-live-dl'
 }
 
-# Configuration
-FFMPEG_BIN = 'ffmpeg'
-
-# Constants
-STREAM_QUALITY = {
-    '150Kbps': 10,
-    '400Kbps': 20,
-    '1.2Mbps': 30,
-    '2Mbps': 40,
-    '3Mbps': 50,
-    'sound': 90,
-}
-STREAM_LATENCY = {
-    'low': 0,
-    'high': 1,
-    'mid': 2,
-}
-
 def clearline():
     print('\033[2K\r', end='')
 
@@ -48,14 +28,6 @@ def loadspin():
     chars = '⠋⠙⠸⠴⠦⠇'
     loadspin_n = (loadspin_n + 1) % len(chars)
     return chars[loadspin_n]
-
-def dict_search(haystack, needle):
-    return list(haystack.keys())[list(haystack.values()).index(needle)]
-
-def format_mode(mode):
-    latency = dict_search(STREAM_LATENCY, mode % 10)
-    quality = dict_search(STREAM_QUALITY, mode // 10 * 10)
-    return quality, latency
 
 def parse_ffmpeg_stats(stderr):
     stats = {
@@ -83,17 +55,151 @@ def sanitize_filename(fname):
         fname = fname.replace(c, '_')
     return fname
 
-class FC2LiveDL():
-    _channel_id = None
-    _member_details = None
-    _hls_info = []
-    _is_live = None
-    _finfo = None
-    _ws_msg_id = 0
-    _chat_file = None
-    _chat_msg_count = 0
+class FC2WebSocket():
+    heartbeat_interval = 30
 
-    _aiohttp_session = None
+    def __init__(self, session, url):
+        self._session = session
+        self._url = url
+        self._msg_id = 0
+        self._msg_responses = {}
+        self._is_ready = False
+        self.comments = asyncio.Queue()
+
+    async def __aenter__(self):
+        self._ws = await self._session.ws_connect(self._url)
+        coros = [self._handle_incoming, self._handle_heartbeat]
+        self._tasks = [asyncio.create_task(coro()) for coro in coros]
+        return self
+
+    async def __aexit__(self, *err):
+        for task in self._tasks:
+            await task.cancel()
+        await self._ws.close()
+
+    async def get_hls_information(self):
+        return await self._send_message_and_wait('get_hls_information')
+
+    async def _handle_incoming(self):
+        while True:
+            msg = await self._ws.receive_json()
+            if msg['name'] == 'connect_complete':
+                self._is_ready = True
+            elif msg['name'] == '_response_':
+                self._msg_responses[msg['id']] = msg['arguments']
+            elif msg['name'] == 'control_disconnection':
+                code = msg['arguments']['code']
+                if code == 4101:
+                    raise self.PaidProgramDisconnection()
+                elif code == 4512:
+                    raise self.MultipleConnectionError()
+            elif msg['name'] == 'comment':
+                for comment in msg['arguments']['comments']:
+                    self.comments.put(comment)
+
+    async def _handle_heartbeat(self):
+        while True:
+            await self._send_message('heartbeat')
+            await asyncio.sleep(self.heartbeat_interval)
+
+    async def _send_message_and_wait(self, name, arguments={}):
+        msg_id = self._send_message(name, arguments)
+        return await self._receive_message(msg_id)
+
+    async def _receive_message(self, msg_id=None):
+        while True:
+            if msg_id is not None and msg_id in self._msg_responses:
+                return self._msg_responses.pop(msg_id)
+
+            msg = await self._ws.receive_json()
+            if msg['name'] == '_response_':
+                self._msg_responses[msg['id']] = msg
+            elif msg_id is None:
+                return msg
+
+    async def _send_message(self, name, arguments={}):
+        self._msg_id += 1
+        await self._ws.send_json({
+            'name': name,
+            'arguments': arguments,
+            'id': self._msg_id
+        })
+        return self._msg_id
+
+    class ServerDisconnection(Exception):
+        '''Raised when the server sends a `control_disconnection` message'''
+
+    class MultipleConnectionError(ServerDisconnection):
+        '''Raised when the server detects multiple connections to the same live stream'''
+
+    class PaidProgramDisconnection(ServerDisconnection):
+        '''Raised when the streamer switches the broadcast to a paid program'''
+
+class FC2LiveStream():
+    def __init__(self, session, channel_id):
+        self._meta = None
+        self._session = session
+        self.channel_id = channel_id
+
+    async def wait_for_online(self, interval):
+        while not self.is_online():
+            await asyncio.sleep(interval)
+
+    async def is_online(self):
+        meta = await self.get_meta(True)
+        return len(meta['channel_data']['version']) > 0
+
+    async def get_websocket_url(self):
+        meta = await self.get_meta()
+        url = 'https://live.fc2.com/api/getControlServer.php'
+        data = {
+            'channel_id': self.channel_id,
+            'mode': 'play',
+            'orz': '',
+            'channel_version': meta['channel_data']['version'],
+            'client_version': '2.1.0\n+[1]',
+            'client_type': 'pc',
+            'client_app': 'browser_hls',
+            'ipv6': '',
+        }
+        async with self._session.post(url, data=data) as resp:
+            info = await resp.json()
+            return '%(url)s?control_token=%(control_token)s' % info
+
+    async def get_meta(self, force_refetch=False):
+        if self._meta is not None and not force_refresh:
+            return self._meta
+
+        url = 'https://live.fc2.com/api/memberApi.php',
+        data = {
+            'channel': 1,
+            'profile': 1,
+            'user': 1,
+            'streamid': self.channel_id,
+        }
+        async with self._session.post(url, data=data) as resp:
+            data = await resp.json()
+            self._meta = data['data']
+            return data['data']
+
+class FC2LiveDL():
+    # Configuration
+    FFMPEG_BIN = 'ffmpeg'
+
+    # Constants
+    STREAM_QUALITY = {
+        '150Kbps': 10,
+        '400Kbps': 20,
+        '1.2Mbps': 30,
+        '2Mbps': 40,
+        '3Mbps': 50,
+        'sound': 90,
+    }
+    STREAM_LATENCY = {
+        'low': 0,
+        'high': 1,
+        'mid': 2,
+    }
 
     # Default params
     params = {
@@ -105,146 +211,61 @@ class FC2LiveDL():
         'wait_poll_interval': 5,
     }
 
-    def __init__(self, params=None):
-        if params is None:
-            params = {}
+    _session = None
+    _background_tasks = []
 
+    def __init__(self, params={}):
         self.params.update(params)
-
         # Validate outtmpl
-        self._finfo = {
-            'channel_id': '',
+        self._format_outtmpl(self.params['outtmpl'])
+
+    async def __aenter__(self):
+        self._session = aiohttp.ClientSession()
+        return self
+
+    async def __aexit__(self, *err):
+        await self._session.close()
+        self._session = None
+
+    async def download(self, channel_id):
+        live = FC2LiveStream(self._session, channel_id)
+
+        is_online = await live.is_online()
+        if not is_online and self.params['wait_for_live']:
+            while not await live.is_online():
+                await asyncio.sleep(self.params['wait_poll_interval'])
+
+        meta = await live.get_meta()
+        ws_url = await live.get_websocket_url()
+        async with FC2WebSocket(self._session, ws_url) as ws:
+            pass
+
+    def _format_mode(self, mode):
+        def dict_search(haystack, needle):
+            return list(haystack.keys())[list(haystack.values()).index(needle)]
+        latency = dict_search(self.STREAM_LATENCY, mode % 10)
+        quality = dict_search(self.STREAM_QUALITY, mode // 10 * 10)
+        return quality, latency
+
+    def _format_outtmpl(self, outtmpl, overrides={}):
+        finfo = {
+            'channel_id': self._channel_id,
             'channel_name': '',
             'date': datetime.now().strftime('%F_%H%M%S'),
             'title': '',
             'ext': ''
         }
-        self.params['outtmpl'] % self._finfo
-        self._channel_id = self.params['url'].split('https://live.fc2.com')[1].split('/')[1]
 
-    def __del__(self):
-        if self._chat_file is not None:
-            self._chat_file.close()
-        if self._aiohttp_session is not None:
-            asyncio.get_running_loop().run_until_complete(self._aiohttp_session.close())
+        if self._stream_meta is not None:
+            finfo['channel_name'] = sanitize_filename(self._stream_meta['profile_data']['name'])
+            finfo['title'] = sanitize_filename(self._stream_meta['channel_data']['title'])
 
-    async def _get_websocket_url(self):
-        # Fetch websocket connection info
-        ws_info = requests.post(
-            'https://live.fc2.com/api/getControlServer.php',
-            data={
-                'channel_id': self._channel_id,
-                'mode': 'play',
-                'orz': '',
-                'channel_version': self._member_details['data']['channel_data']['version'],
-                'client_version': '2.1.0\n+[1]',
-                'client_type': 'pc',
-                'client_app': 'browser_hls',
-                'ipv6': '',
-            }
-        ).json()
-        ws_url = ws_info['url']
-        control_token = ws_info['control_token']
-        return ws_url + '?control_token=' + control_token
+        finfo.update(overrides)
+        return outtmpl % finfo
 
-    def _dump_chat(self, chat_msgs):
-        if not self.params['save_chat']:
-            return False
-
-        for msg in chat_msgs:
-            self._chat_file.write(json.dumps(msg))
-            self._chat_file.write('\n')
-            self._chat_msg_count += 1
-
-    async def _handle_websocket(self, ws):
-        print('[ws] connected')
-
-        last_heartbeat = time.time()
-        msg_id = 0
-        while True:
-            msg = json.loads(await ws.recv())
-
-            if msg['name'] == 'connect_complete':
-                msg_id += 1
-                await ws.send(json.dumps({
-                    'name': 'get_hls_information',
-                    'arguments': {},
-                    'id': msg_id
-                }))
-            elif msg['name'] == '_response_' and msg['id'] == 1:
-                playlists = ['playlists', 'playlists_high_latency', 'playlists_middle_latency']
-                self._hls_info = []
-                for playlist in playlists:
-                    if playlist in msg['arguments']:
-                        self._hls_info.extend(msg['arguments'][playlist])
-
-                # Sort from best quality
-                self._hls_info = sorted(self._hls_info, key=lambda x: x['mode'] - 90 if x['mode'] >= 90 else x['mode'])[::-1]
-                print('[ws] received HLS info')
-            elif msg['name'] == 'control_disconnection':
-                code = msg['arguments']['code']
-                if code == 4101:
-                    raise Exception('Broadcast has switched to paid program')
-                elif code == 4512:
-                    raise Exception('Disconnected: multiple connections')
-            elif msg['name'] == 'comment':
-                if self.params['save_chat']:
-                    self._dump_chat(msg['arguments']['comments'])
-
-            # Send heartbeat every 30 seconds
-            if time.time() - last_heartbeat > 30:
-                last_heartbeat = time.time()
-                msg_id += 1
-                await ws.send(json.dumps({
-                    'name': 'heartbeat',
-                    'arguments': {},
-                    'id': msg_id
-                }))
-
-    async def _connect_to_websocket(self):
-        '''
-        Set up a long-running websocket connection to keep the playlist alive
-        '''
-        print('[ws] connecting')
-        try:
-            ws_url = await self._get_websocket_url()
-            async with websockets.connect(ws_url) as ws:
-                try:
-                    await self._handle_websocket(ws)
-                except asyncio.CancelledError:
-                    print('[ws] closing connection')
-                    await ws.close()
-
-        except websockets.ConnectionClosedError as ex:
-            if ex.code == 4507:
-                print('Broadcast has ended')
-                self._is_live = False
-                return False
-        except Exception as ex:
-            print(repr(ex))
-            self._is_live = False
-            return False
-
-    async def _get_member_details(self, refetch=False):
-        if self._member_details is None or refetch:
-            def fetch():
-                return requests.post(
-                    'https://live.fc2.com/api/memberApi.php',
-                    data={
-                        'channel': 1,
-                        'profile': 1,
-                        'user': 1,
-                        'streamid': self._channel_id,
-                    }
-                )
-            loop = asyncio.get_event_loop()
-            req = await loop.run_in_executor(fetch())
-            self._member_details = req.json()
-            self._finfo['channel_name'] = sanitize_filename(self._member_details['data']['profile_data']['name'])
-            self._finfo['channel_id'] = sanitize_filename(self._channel_id)
-            self._finfo['title'] = sanitize_filename(self._member_details['data']['channel_data']['title'])
-            self._is_live = len(self._member_details['data']['channel_data']['version']) > 1
-        return self._member_details
+    '''
+    -----------------------------------------
+    '''
 
     async def _wait_and_download(self):
         # Wait until HLS info from websocket is available
