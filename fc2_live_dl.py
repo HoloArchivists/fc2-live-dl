@@ -65,7 +65,7 @@ class Logger():
         args.append('\033[0m')
         if spin:
             args.insert(0, self._spin())
-        end = '\033[K\r' if inline else '\n'
+        end = '\033[K\r' if inline else '\033[K\n'
         print('{}[{}]'.format(prefix, self._module), *args, end=end)
 
 class AsyncMap():
@@ -412,6 +412,15 @@ class FC2LiveDL():
 
         if playlist is None:
             playlist = sorted_playlists[0]
+            self._logger.warn(
+                'Requested quality',
+                self._format_mode(mode),
+                'is not available'
+            )
+            self._logger.warn(
+                'falling back to next best quality',
+                self._format_mode(playlist['mode'])
+            )
 
         return playlist
 
