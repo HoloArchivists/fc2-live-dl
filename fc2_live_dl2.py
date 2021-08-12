@@ -11,7 +11,7 @@ import sys
 
 ABOUT = {
     'name': 'fc2-live-dl',
-    'version': '0.0.1',
+    'version': '1.0.0',
     'date': '2021-08-09',
     'description': 'Download fc2 livestreams',
     'author': 'hizkifw',
@@ -22,38 +22,64 @@ ABOUT = {
 def clearline():
     print('\033[2K\r', end='')
 
-loadspin_n = 0
-def loadspin():
-    global loadspin_n
-    chars = '⠋⠙⠸⠴⠦⠇'
-    loadspin_n = (loadspin_n + 1) % len(chars)
-    return chars[loadspin_n]
-
-def parse_ffmpeg_stats(stderr):
-    stats = {
-        'frame': 0,
-        'fps': 0,
-        'q': 0,
-        'size': '0kB',
-        'time': '00:00:00.00',
-        'bitrate': 'N/A',
-        'speed': 'N/A',
-    }
-    last_item = '-'
-    parts = [x for x in stderr.split(' ') if len(x) > 0]
-    for item in parts:
-        if last_item[-1] == '=':
-            stats[last_item[:-1]] = item
-        elif '=' in item:
-            k, v = item.split('=')
-            stats[k] = v
-        last_item = item
-    return stats
+def debug_log(src, msg):
+    print('[{}] {}'.format(src, msg))
 
 def sanitize_filename(fname):
+    fname = str(fname)
     for c in '<>:"/\\|?*':
         fname = fname.replace(c, '_')
     return fname
+
+class Logger():
+    LOGLEVEL_NONE = 0
+    LOGLEVEL_ERROR = 1
+    LOGLEVEL_WARN = 2
+    LOGLEVEL_INFO = 3
+    LOGLEVEL_DEBUG = 4
+    LOGLEVEL_TRACE = 5
+
+    loglevel = LOGLEVEL_INFO
+
+    def __init__(self, module):
+        self._module = module
+        self._loadspin_n = 0
+
+    def trace(self, *args, **kwargs):
+        if self.loglevel >= self.LOGLEVEL_TRACE:
+            self._print('\033[35m', *args, **kwargs)
+
+    def debug(self, *args, **kwargs):
+        if self.loglevel >= self.LOGLEVEL_DEBUG:
+            self._print('\033[36m', *args, **kwargs)
+
+    def info(self, *args, **kwargs):
+        if self.loglevel >= self.LOGLEVEL_INFO:
+            self._print('', *args, **kwargs)
+
+    def warn(self, *args, **kwargs):
+        if self.loglevel >= self.LOGLEVEL_WARN:
+            self._print('\033[33m', *args, **kwargs)
+
+    def error(self, *args, **kwargs):
+        if self.loglevel >= self.LOGLEVEL_ERROR:
+            self._print('\033[31m', *args, **kwargs)
+
+    def infol(self, *args):
+        if self.loglevel >= self.LOGLEVEL_INFO:
+            self._print('\033[2K', *args, end='\r')
+
+    def endl(self):
+        if self.loglevel >= self.LOGLEVEL_INFO:
+            print('')
+
+    def infospin(self, *args):
+        chars = '⡆⠇⠋⠙⠸⢰⣠⣄'
+        self._loadspin_n = (self._loadspin_n + 1) % len(chars)
+        self.infol(chars[self._loadspin_n], *args)
+
+    def _print(self, prefix, *args, **kwargs):
+        print(prefix + '[{}]'.format(self._module), *args, '\033[0m', **kwargs)
 
 class FC2WebSocket():
     heartbeat_interval = 30
@@ -64,25 +90,30 @@ class FC2WebSocket():
         self._msg_id = 0
         self._msg_responses = {}
         self._is_ready = False
+        self._logger = Logger('ws')
         self.comments = asyncio.Queue()
 
     async def __aenter__(self):
+        self._loop = asyncio.get_running_loop()
         self._ws = await self._session.ws_connect(self._url)
+        self._logger.debug('connected')
         coros = [self._handle_incoming, self._handle_heartbeat]
-        self._tasks = [asyncio.create_task(coro()) for coro in coros]
+        self._tasks = [self._loop.create_task(coro()) for coro in coros]
         return self
 
     async def __aexit__(self, *err):
         for task in self._tasks:
-            await task.cancel()
+            task.cancel()
         await self._ws.close()
+        self._logger.debug('closed')
 
     async def get_hls_information(self):
-        return await self._send_message_and_wait('get_hls_information')
+        msg = await self._send_message_and_wait('get_hls_information')
+        return msg['arguments']
 
     async def _handle_incoming(self):
         while True:
-            msg = await self._ws.receive_json()
+            msg = await self._receive_message()
             if msg['name'] == 'connect_complete':
                 self._is_ready = True
             elif msg['name'] == '_response_':
@@ -99,11 +130,12 @@ class FC2WebSocket():
 
     async def _handle_heartbeat(self):
         while True:
+            self._logger.debug('heartbeat')
             await self._send_message('heartbeat')
             await asyncio.sleep(self.heartbeat_interval)
 
     async def _send_message_and_wait(self, name, arguments={}):
-        msg_id = self._send_message(name, arguments)
+        msg_id = await self._send_message(name, arguments)
         return await self._receive_message(msg_id)
 
     async def _receive_message(self, msg_id=None):
@@ -112,6 +144,7 @@ class FC2WebSocket():
                 return self._msg_responses.pop(msg_id)
 
             msg = await self._ws.receive_json()
+            self._logger.trace('<', msg)
             if msg['name'] == '_response_':
                 self._msg_responses[msg['id']] = msg
             elif msg_id is None:
@@ -119,6 +152,7 @@ class FC2WebSocket():
 
     async def _send_message(self, name, arguments={}):
         self._msg_id += 1
+        self._logger.trace('>', name, arguments)
         await self._ws.send_json({
             'name': name,
             'arguments': arguments,
@@ -139,17 +173,22 @@ class FC2LiveStream():
     def __init__(self, session, channel_id):
         self._meta = None
         self._session = session
+        self._logger = Logger('live')
         self.channel_id = channel_id
 
     async def wait_for_online(self, interval):
-        while not self.is_online():
-            await asyncio.sleep(interval)
+        while not await self.is_online():
+            for _ in range(interval):
+                self._logger.infospin('Waiting for stream')
+                await asyncio.sleep(1)
 
     async def is_online(self):
         meta = await self.get_meta(True)
         return len(meta['channel_data']['version']) > 0
 
     async def get_websocket_url(self):
+        if not self.is_online:
+            raise self.NotOnlineException()
         meta = await self.get_meta()
         url = 'https://live.fc2.com/api/getControlServer.php'
         data = {
@@ -167,10 +206,10 @@ class FC2LiveStream():
             return '%(url)s?control_token=%(control_token)s' % info
 
     async def get_meta(self, force_refetch=False):
-        if self._meta is not None and not force_refresh:
+        if self._meta is not None and not force_refetch:
             return self._meta
 
-        url = 'https://live.fc2.com/api/memberApi.php',
+        url = 'https://live.fc2.com/api/memberApi.php'
         data = {
             'channel': 1,
             'profile': 1,
@@ -178,14 +217,73 @@ class FC2LiveStream():
             'streamid': self.channel_id,
         }
         async with self._session.post(url, data=data) as resp:
-            data = await resp.json()
+            # FC2 returns text/javascript instead of application/json
+            # Content type is specified so aiohttp knows what to expect
+            data = await resp.json(content_type='text/javascript')
             self._meta = data['data']
             return data['data']
 
-class FC2LiveDL():
-    # Configuration
+    class NotOnlineException(Exception):
+        '''Raised when the channel is not currently broadcasting'''
+
+class LiveStreamRecorder():
     FFMPEG_BIN = 'ffmpeg'
 
+    def __init__(self, src, dest):
+        self._logger = Logger('recording')
+        self.src = src
+        self.dest = dest
+
+    async def __aenter__(self):
+        self._loop = asyncio.get_running_loop()
+        self._ffmpeg = await asyncio.create_subprocess_exec(
+            self.FFMPEG_BIN,
+            '-hide_banner', '-loglevel', 'fatal', '-stats',
+            '-i', self.src, '-c', 'copy', self.dest,
+            stdout=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.PIPE
+        )
+        return self
+
+    async def __aexit__(self, *err):
+        ret = self._ffmpeg.returncode
+        if ret is None:
+            self._ffmpeg.send_signal(signal.SIGINT)
+        ret = await self._ffmpeg.wait()
+        self._logger.debug('exited with code', ret)
+
+    async def print_status(self):
+        try:
+            status = await self.get_status()
+            self._logger.infol(status['time'], status['size'])
+            return True
+        except:
+            self._logger.endl()
+            return False
+
+    async def get_status(self):
+        stderr = (await self._ffmpeg.stderr.readuntil(b'\r')).decode('utf-8')
+        stats = {
+            'frame': 0,
+            'fps': 0,
+            'q': 0,
+            'size': '0kB',
+            'time': '00:00:00.00',
+            'bitrate': 'N/A',
+            'speed': 'N/A',
+        }
+        last_item = '-'
+        parts = [x for x in stderr.split(' ') if len(x) > 0]
+        for item in parts:
+            if last_item[-1] == '=':
+                stats[last_item[:-1]] = item
+            elif '=' in item:
+                k, v = item.split('=')
+                stats[k] = v
+            last_item = item
+        return stats
+
+class FC2LiveDL():
     # Constants
     STREAM_QUALITY = {
         '150Kbps': 10,
@@ -215,9 +313,10 @@ class FC2LiveDL():
     _background_tasks = []
 
     def __init__(self, params={}):
+        self._logger = Logger('fc2')
         self.params.update(params)
         # Validate outtmpl
-        self._format_outtmpl(self.params['outtmpl'])
+        self._format_outtmpl()
 
     async def __aenter__(self):
         self._session = aiohttp.ClientSession()
@@ -228,17 +327,78 @@ class FC2LiveDL():
         self._session = None
 
     async def download(self, channel_id):
-        live = FC2LiveStream(self._session, channel_id)
+        try:
+            live = FC2LiveStream(self._session, channel_id)
 
-        is_online = await live.is_online()
-        if not is_online and self.params['wait_for_live']:
-            while not await live.is_online():
-                await asyncio.sleep(self.params['wait_poll_interval'])
+            is_online = await live.is_online()
+            if not is_online:
+                if not self.params['wait_for_live']:
+                    raise FC2LiveStream.NotOnlineException()
+                await live.wait_for_online(self.params['wait_poll_interval'])
 
-        meta = await live.get_meta()
-        ws_url = await live.get_websocket_url()
-        async with FC2WebSocket(self._session, ws_url) as ws:
-            pass
+            self._logger.info('Stream is online')
+
+            meta = await live.get_meta()
+            ws_url = await live.get_websocket_url()
+            self._logger.info('Found websocket url')
+            async with FC2WebSocket(self._session, ws_url) as ws:
+                hls_info = await ws.get_hls_information()
+                hls_url = self._get_hls_url(hls_info)
+                self._logger.info('Received HLS info')
+
+                fname = self._format_outtmpl(meta, { 'ext': 'ts' })
+                self._logger.info('Saving to ' + fname)
+
+                async with LiveStreamRecorder(hls_url, fname) as ffmpeg:
+                    self._logger.infol('Starting download')
+                    while await ffmpeg.print_status():
+                        pass
+        except asyncio.CancelledError:
+            self._logger.info('Interrupted by user')
+
+    def _get_hls_url(self, hls_info):
+        mode = self._get_mode()
+        p_merged = self._merge_playlists(hls_info)
+        p_sorted = self._sort_playlists(p_merged)
+        playlist = self._get_playlist_or_best(p_sorted, mode)
+        return playlist['url']
+
+    def _get_playlist_or_best(self, sorted_playlists, mode=None):
+        playlist = None
+        for p in sorted_playlists:
+            if p['mode'] == mode:
+                playlist = p
+
+        if playlist is None:
+            playlist = sorted_playlists[0]
+
+        return playlist
+
+    def _sort_playlists(self, merged_playlists):
+        def key_map(playlist):
+            mode = playlist['mode']
+            if mode >= 90:
+                return mode - 90
+            return mode
+
+        return sorted(
+            merged_playlists,
+            reverse=True,
+            key=key_map
+        )
+
+    def _merge_playlists(self, hls_info):
+        playlists = []
+        for name in ['playlists', 'playlists_high_latency', 'playlists_middle_latency']:
+            if name in hls_info:
+                playlists.extend(hls_info[name])
+        return playlists
+
+    def _get_mode(self):
+        mode = 0
+        mode += self.STREAM_QUALITY[self.params['quality']]
+        mode += self.STREAM_LATENCY[self.params['latency']]
+        return mode
 
     def _format_mode(self, mode):
         def dict_search(haystack, needle):
@@ -247,142 +407,27 @@ class FC2LiveDL():
         quality = dict_search(self.STREAM_QUALITY, mode // 10 * 10)
         return quality, latency
 
-    def _format_outtmpl(self, outtmpl, overrides={}):
+    def _format_outtmpl(self, meta=None, overrides={}):
         finfo = {
-            'channel_id': self._channel_id,
+            'channel_id': '',
             'channel_name': '',
             'date': datetime.now().strftime('%F_%H%M%S'),
             'title': '',
             'ext': ''
         }
 
-        if self._stream_meta is not None:
-            finfo['channel_name'] = sanitize_filename(self._stream_meta['profile_data']['name'])
-            finfo['title'] = sanitize_filename(self._stream_meta['channel_data']['title'])
+        if meta is not None:
+            finfo['channel_id'] = sanitize_filename(meta['channel_data']['channelid'])
+            finfo['channel_name'] = sanitize_filename(meta['profile_data']['name'])
+            finfo['title'] = sanitize_filename(meta['channel_data']['title'])
 
         finfo.update(overrides)
-        return outtmpl % finfo
 
-    '''
-    -----------------------------------------
-    '''
+        formatted = self.params['outtmpl'] % finfo
+        if formatted.startswith('-'):
+            formatted = '_' + formatted
 
-    async def _wait_and_download(self):
-        # Wait until HLS info from websocket is available
-        while len(self._hls_info) == 0:
-            if self._is_live == False:
-                return
-            await asyncio.sleep(0.1)
-
-        mode = 0
-        mode += STREAM_QUALITY[self.params['quality']]
-        mode += STREAM_LATENCY[self.params['latency']]
-
-        playlist = None
-        for p in self._hls_info:
-            if p['mode'] == mode:
-                playlist = p
-
-        # Requested mode not found, fallback to the next best quality
-        if playlist is None:
-            print('[download] requested mode not available: {}'.format(mode))
-            print('[download] available formats are: {}'.format(', '.join([str(x['mode']) for x in self._hls_info])))
-            playlist = self._hls_info[0]
-            print('[download] falling back to the next best quality: {}'.format(self._hls_info[0]['mode']))
-
-        self._finfo['ext'] = 'ts'
-        fname = self.params['outtmpl'] % self._finfo
-        if fname.startswith('-'):
-            fname = '_' + fname
-
-        quality, latency = format_mode(playlist['mode'])
-        print('[download] downloading {} at {} latency ({})'.format(quality, latency, playlist['mode']))
-        print('[download] saving to {}'.format(fname))
-        print('[download] starting...', end='')
-
-        ffmpeg = await asyncio.create_subprocess_exec(
-            FFMPEG_BIN,
-            '-hide_banner', '-loglevel', 'fatal', '-stats',
-            '-i', playlist['url'], '-c', 'copy', fname,
-            stdout=asyncio.subprocess.DEVNULL,
-            stderr=asyncio.subprocess.PIPE
-        )
-
-        while ffmpeg.returncode is None:
-            try:
-                stderr = (await ffmpeg.stderr.readuntil(b'\r')).decode('utf-8')
-                if len(stderr) > 0:
-                    # Parse ffmpeg's output
-                    stats = parse_ffmpeg_stats(stderr)
-                    clearline()
-                    print('[download] {} {}'.format(stats['time'], stats['size']), end='')
-                    if self.params['save_chat']:
-                        print(', {} chat msg'.format(self._chat_msg_count), end='')
-                    print('\r')
-            except asyncio.IncompleteReadError:
-                print('')
-                break
-            except asyncio.CancelledError:
-                print('[download] stopping ffmpeg')
-                ffmpeg.send_signal(signal.SIGINT)
-                await ffmpeg.wait()
-            except Exception as ex:
-                print('')
-                print(repr(ex))
-
-        print('[download] ffmpeg closing\r', end='')
-        if ffmpeg.returncode is None:
-            await ffmpeg.wait()
-        print('[download] ffmpeg exited with code {}'.format(ffmpeg.returncode))
-
-    async def _prepare_for_download(self):
-        print('[fc2] fetching member details')
-        self._aiohttp_session = aiohttp.ClientSession()
-        await self._get_member_details()
-        print('[fc2] found channel {}'.format(self._finfo['channel_name']))
-
-        while not self._is_live:
-            if not self.params['wait_for_live']:
-                print('[fc2] broadcast is not yet live')
-                return
-
-            clearline()
-            for _ in range(10):
-                print('[fc2] {} waiting for member to go live'.format(loadspin()), end='\r')
-                await asyncio.sleep(self.params['wait_poll_interval'] / 10)
-            print('[fc2] {} waiting for member to go live (checking...)'.format(loadspin()), end='\r')
-            await self._get_member_details()
-
-        if self.params['save_chat']:
-            self._finfo['ext'] = 'fc2chat.json'
-            chat_fname = self.params['outtmpl'] % self._finfo
-            print('[fc2] saving chat to {}'.format(chat_fname))
-            self._chat_file = open(chat_fname, 'w')
-            self._chat_file.write(json.dumps({
-                'file': 'fc2-live-chat',
-                'version': '1',
-                'metadata': {
-                    'time_now_ms': int(time.time() * 1000)
-                }
-            }))
-            self._chat_file.write('\n')
-
-    async def start_download(self):
-        tasks = []
-        try:
-            await self._prepare_for_download()
-            tasks.append(asyncio.ensure_future(self._connect_to_websocket()))
-            tasks.append(asyncio.ensure_future(self._wait_and_download()))
-            await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
-        except asyncio.CancelledError:
-            print('\n[fc2] Interrupted by user')
-        finally:
-            for task in tasks:
-                if not task.done():
-                    task.cancel()
-
-            # Wait for cleanup
-            await asyncio.wait(tasks)
+        return formatted
 
 class SmartFormatter(argparse.HelpFormatter):
     def flatten(self, input_array):
@@ -407,20 +452,20 @@ class SmartFormatter(argparse.HelpFormatter):
             )
         return argparse.HelpFormatter._split_lines(self, text, width)
 
-def main(args):
+async def main(args):
     parser = argparse.ArgumentParser(formatter_class=SmartFormatter)
     parser.add_argument('url',
         help='A live.fc2.com URL.'
     )
     parser.add_argument(
         '--quality',
-        choices=STREAM_QUALITY.keys(),
+        choices=FC2LiveDL.STREAM_QUALITY.keys(),
         default=FC2LiveDL.params['quality'],
         help='Quality of the stream to download. Default is {}.'.format(FC2LiveDL.params['quality'])
     )
     parser.add_argument(
         '--latency',
-        choices=STREAM_LATENCY.keys(),
+        choices=FC2LiveDL.STREAM_LATENCY.keys(),
         default=FC2LiveDL.params['latency'],
         help='Stream latency. Select a higher latency if experiencing stability issues. Default is {}.'.format(FC2LiveDL.params['latency'])
     )
@@ -456,19 +501,25 @@ Available format options:
 
     # Init fc2-live-dl
     args = parser.parse_args(args[1:])
-    fc2 = FC2LiveDL({
-        'url': args.url,
+    params = {
         'quality': args.quality,
         'latency': args.latency,
         'outtmpl': args.output,
         'save_chat': args.save_chat,
         'wait_for_live': args.wait,
         'wait_poll_interval': args.poll_interval,
-    })
+    }
+    channel_id = args.url.split('https://live.fc2.com')[1].split('/')[1]
+    async with FC2LiveDL(params) as fc2:
+        try:
+            await fc2.download(channel_id)
+        except FC2LiveStream.NotOnlineException:
+            print('Stream is not online')
 
+if __name__ == '__main__':
     # Set up asyncio loop
     loop = asyncio.get_event_loop()
-    task = asyncio.ensure_future(fc2.start_download())
+    task = asyncio.ensure_future(main(sys.argv))
     try:
         loop.run_until_complete(task)
     except KeyboardInterrupt:
@@ -478,6 +529,3 @@ Available format options:
         # Give some time for aiohttp cleanup
         loop.run_until_complete(asyncio.sleep(0.250))
         loop.close()
-
-if __name__ == '__main__':
-    main(sys.argv)
