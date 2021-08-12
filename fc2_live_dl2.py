@@ -32,45 +32,47 @@ def sanitize_filename(fname):
     return fname
 
 class Logger():
-    LOGLEVEL_NONE = 0
-    LOGLEVEL_ERROR = 1
-    LOGLEVEL_WARN = 2
-    LOGLEVEL_INFO = 3
-    LOGLEVEL_DEBUG = 4
-    LOGLEVEL_TRACE = 5
+    LOGLEVELS = {
+        'silent': 0,
+        'error': 1,
+        'warn': 2,
+        'info': 3,
+        'debug': 4,
+        'trace': 5,
+    }
 
-    loglevel = LOGLEVEL_INFO
+    loglevel = LOGLEVELS['info']
 
     def __init__(self, module):
         self._module = module
         self._loadspin_n = 0
 
     def trace(self, *args, **kwargs):
-        if self.loglevel >= self.LOGLEVEL_TRACE:
+        if self.loglevel >= self.LOGLEVELS['trace']:
             self._print('\033[35m', *args, **kwargs)
 
     def debug(self, *args, **kwargs):
-        if self.loglevel >= self.LOGLEVEL_DEBUG:
+        if self.loglevel >= self.LOGLEVELS['debug']:
             self._print('\033[36m', *args, **kwargs)
 
     def info(self, *args, **kwargs):
-        if self.loglevel >= self.LOGLEVEL_INFO:
+        if self.loglevel >= self.LOGLEVELS['info']:
             self._print('', *args, **kwargs)
 
     def warn(self, *args, **kwargs):
-        if self.loglevel >= self.LOGLEVEL_WARN:
+        if self.loglevel >= self.LOGLEVELS['warn']:
             self._print('\033[33m', *args, **kwargs)
 
     def error(self, *args, **kwargs):
-        if self.loglevel >= self.LOGLEVEL_ERROR:
+        if self.loglevel >= self.LOGLEVELS['error']:
             self._print('\033[31m', *args, **kwargs)
 
     def infol(self, *args):
-        if self.loglevel >= self.LOGLEVEL_INFO:
+        if self.loglevel >= self.LOGLEVELS['info']:
             self._print('\033[2K', *args, end='\r')
 
     def endl(self):
-        if self.loglevel >= self.LOGLEVEL_INFO:
+        if self.loglevel >= self.LOGLEVELS['info']:
             print('')
 
     def infospin(self, *args):
@@ -81,6 +83,23 @@ class Logger():
     def _print(self, prefix, *args, **kwargs):
         print(prefix + '[{}]'.format(self._module), *args, '\033[0m', **kwargs)
 
+class AsyncMap():
+    def __init__(self):
+        self._map = {}
+        self._cond = asyncio.Condition()
+
+    async def put(self, key, value):
+        async with self._cond:
+            self._map[key] = value
+            self._cond.notify_all()
+
+    async def pop(self, key):
+        while True:
+            async with self._cond:
+                await self._cond.wait()
+                if key in self._map:
+                    return self._map.pop(key)
+
 class FC2WebSocket():
     heartbeat_interval = 30
 
@@ -88,7 +107,7 @@ class FC2WebSocket():
         self._session = session
         self._url = url
         self._msg_id = 0
-        self._msg_responses = {}
+        self._msg_responses = AsyncMap()
         self._is_ready = False
         self._logger = Logger('ws')
         self.comments = asyncio.Queue()
@@ -102,6 +121,8 @@ class FC2WebSocket():
         return self
 
     async def __aexit__(self, *err):
+        self._logger.trace('exit', err)
+        self._logger.trace('exception', self._ws.exception())
         for task in self._tasks:
             task.cancel()
         await self._ws.close()
@@ -113,11 +134,12 @@ class FC2WebSocket():
 
     async def _handle_incoming(self):
         while True:
-            msg = await self._receive_message()
+            msg = await self._ws.receive_json()
+            self._logger.trace('<', json.dumps(msg)[:100])
             if msg['name'] == 'connect_complete':
                 self._is_ready = True
             elif msg['name'] == '_response_':
-                self._msg_responses[msg['id']] = msg['arguments']
+                await self._msg_responses.put(msg['id'], msg)
             elif msg['name'] == 'control_disconnection':
                 code = msg['arguments']['code']
                 if code == 4101:
@@ -126,7 +148,7 @@ class FC2WebSocket():
                     raise self.MultipleConnectionError()
             elif msg['name'] == 'comment':
                 for comment in msg['arguments']['comments']:
-                    self.comments.put(comment)
+                    await self.comments.put(comment)
 
     async def _handle_heartbeat(self):
         while True:
@@ -136,19 +158,7 @@ class FC2WebSocket():
 
     async def _send_message_and_wait(self, name, arguments={}):
         msg_id = await self._send_message(name, arguments)
-        return await self._receive_message(msg_id)
-
-    async def _receive_message(self, msg_id=None):
-        while True:
-            if msg_id is not None and msg_id in self._msg_responses:
-                return self._msg_responses.pop(msg_id)
-
-            msg = await self._ws.receive_json()
-            self._logger.trace('<', msg)
-            if msg['name'] == '_response_':
-                self._msg_responses[msg['id']] = msg
-            elif msg_id is None:
-                return msg
+        return await self._msg_responses.pop(msg_id)
 
     async def _send_message(self, name, arguments={}):
         self._msg_id += 1
@@ -246,6 +256,7 @@ class LiveStreamRecorder():
         return self
 
     async def __aexit__(self, *err):
+        self._logger.trace('exit', err)
         ret = self._ffmpeg.returncode
         if ret is None:
             self._ffmpeg.send_signal(signal.SIGINT)
@@ -323,6 +334,7 @@ class FC2LiveDL():
         return self
 
     async def __aexit__(self, *err):
+        self._logger.trace('exit', err)
         await self._session.close()
         self._session = None
 
@@ -349,10 +361,11 @@ class FC2LiveDL():
                 fname = self._format_outtmpl(meta, { 'ext': 'ts' })
                 self._logger.info('Saving to ' + fname)
 
-                async with LiveStreamRecorder(hls_url, fname) as ffmpeg:
+                async with LiveStreamRecorder(hls_url, fname) as rec:
                     self._logger.infol('Starting download')
-                    while await ffmpeg.print_status():
+                    while await rec.print_status():
                         pass
+
         except asyncio.CancelledError:
             self._logger.info('Interrupted by user')
 
@@ -498,9 +511,16 @@ Available format options:
         default=FC2LiveDL.params['wait_poll_interval'],
         help='How many seconds between checks to see if broadcast is live. Default is {}.'.format(FC2LiveDL.params['wait_poll_interval'])
     )
+    parser.add_argument(
+        '--log-level',
+        default='info',
+        choices=Logger.LOGLEVELS.keys(),
+        help='Log level verbosity. Default is info.'
+    )
 
     # Init fc2-live-dl
     args = parser.parse_args(args[1:])
+    Logger.loglevel = Logger.LOGLEVELS[args.log_level]
     params = {
         'quality': args.quality,
         'latency': args.latency,
@@ -510,11 +530,16 @@ Available format options:
         'wait_poll_interval': args.poll_interval,
     }
     channel_id = args.url.split('https://live.fc2.com')[1].split('/')[1]
+    logger = Logger('main')
     async with FC2LiveDL(params) as fc2:
         try:
             await fc2.download(channel_id)
         except FC2LiveStream.NotOnlineException:
-            print('Stream is not online')
+            logger.error('Stream is not online')
+        except FC2WebSocket.MultipleConnectionError:
+            logger.error('Disconnected: multiple connections')
+        except FC2WebSocket.PaidProgramDisconnection:
+            logger.error('Disconnected: broadcast has switched to a paid program')
 
 if __name__ == '__main__':
     # Set up asyncio loop

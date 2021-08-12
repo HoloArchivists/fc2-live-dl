@@ -93,8 +93,6 @@ class FC2LiveDL():
     _chat_file = None
     _chat_msg_count = 0
 
-    _aiohttp_session = None
-
     # Default params
     params = {
         'quality': '3Mbps',
@@ -125,8 +123,6 @@ class FC2LiveDL():
     def __del__(self):
         if self._chat_file is not None:
             self._chat_file.close()
-        if self._aiohttp_session is not None:
-            asyncio.get_running_loop().run_until_complete(self._aiohttp_session.close())
 
     async def _get_websocket_url(self):
         # Fetch websocket connection info
