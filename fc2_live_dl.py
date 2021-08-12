@@ -328,6 +328,7 @@ class FC2LiveDL():
         self._session = None
 
     async def download(self, channel_id):
+        tasks = []
         try:
             live = FC2LiveStream(self._session, channel_id)
 
@@ -373,10 +374,15 @@ class FC2LiveDL():
                     coros.append(self._download_chat(ws, fname_chat))
 
                 tasks = [asyncio.create_task(coro) for coro in coros]
-                await asyncio.wait(tasks)
+                await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
 
         except asyncio.CancelledError:
             self._logger.error('Interrupted by user')
+        finally:
+            for task in tasks:
+                if not task.done():
+                    task.cancel()
+            await asyncio.wait(tasks)
 
     async def _download_stream(self, hls_url, fname):
         async with LiveStreamRecorder(hls_url, fname) as rec:
@@ -386,9 +392,10 @@ class FC2LiveDL():
 
     async def _download_chat(self, ws, fname):
         with open(fname, 'w') as f:
-            comment = await ws.comments.get()
-            f.write(json.dumps(comment))
-            f.write('\n')
+            while True:
+                comment = await ws.comments.get()
+                f.write(json.dumps(comment))
+                f.write('\n')
 
     def _get_hls_url(self, hls_info):
         mode = self._get_mode()
