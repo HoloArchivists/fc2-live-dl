@@ -1,2 +1,2 @@
-requests>=2.26.0
+aiohttp>=3.7.4.post0
 websockets>=9.1
