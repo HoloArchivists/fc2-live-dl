@@ -5,6 +5,7 @@ import http.cookies
 import argparse
 import asyncio
 import aiohttp
+import base64
 import signal
 import time
 import json
@@ -241,8 +242,18 @@ class FC2LiveStream():
         }
         self._logger.trace('get_websocket_url>', url, data)
         async with self._session.post(url, data=data) as resp:
+            self._logger.trace(resp.request_info)
             info = await resp.json()
             self._logger.trace('<get_websocket_url', info)
+
+            jwt_body = info['control_token'].split('.')[1]
+            control_token = json.loads(base64.b64decode(jwt_body + '==').decode('utf-8'))
+            fc2id = control_token['fc2_id']
+            if len(fc2id) > 0:
+                self._logger.debug('Logged in with ID', fc2id)
+            else:
+                self._logger.debug('Using anonymous account')
+
             return '%(url)s?control_token=%(control_token)s' % info
 
     async def get_meta(self, force_refetch=False):
@@ -578,9 +589,10 @@ class FC2LiveDL():
                 try:
                     domain, _flag, path, secure, _expiration, name, value = [t.strip() for t in line.split('\t')]
                     cookies[name] = value
-                    cookies[name]['domain'] = domain
+                    cookies[name]['domain'] = domain.replace('#HttpOnly_', '')
                     cookies[name]['path'] = path
                     cookies[name]['secure'] = secure
+                    cookies[name]['httponly'] = domain.startswith('#HttpOnly_')
                 except Exception as ex:
                     self._logger.trace(line, repr(ex), str(ex))
         return cookies
