@@ -5,6 +5,7 @@ import http.cookies
 import argparse
 import asyncio
 import aiohttp
+import base64
 import signal
 import time
 import json
@@ -102,6 +103,7 @@ class FC2WebSocket():
     async def __aenter__(self):
         self._loop = asyncio.get_running_loop()
         self._ws = await self._session.ws_connect(self._url)
+        self._logger.trace(self._ws)
         self._logger.debug('connected')
         self._task = asyncio.create_task(
             self._main_loop(),
@@ -222,19 +224,36 @@ class FC2LiveStream():
         if not await self.is_online(refetch=False):
             raise self.NotOnlineException()
 
+        orz = ''
+        cookie_orz = self._get_cookie('l_ortkn')
+        if cookie_orz is not None:
+            orz = cookie_orz.value
+
         url = 'https://live.fc2.com/api/getControlServer.php'
         data = {
             'channel_id': self.channel_id,
             'mode': 'play',
-            'orz': '',
+            'orz': orz,
             'channel_version': meta['channel_data']['version'],
             'client_version': '2.1.0\n+[1]',
             'client_type': 'pc',
             'client_app': 'browser_hls',
             'ipv6': '',
         }
+        self._logger.trace('get_websocket_url>', url, data)
         async with self._session.post(url, data=data) as resp:
+            self._logger.trace(resp.request_info)
             info = await resp.json()
+            self._logger.trace('<get_websocket_url', info)
+
+            jwt_body = info['control_token'].split('.')[1]
+            control_token = json.loads(base64.b64decode(jwt_body + '==').decode('utf-8'))
+            fc2id = control_token['fc2_id']
+            if len(fc2id) > 0:
+                self._logger.debug('Logged in with ID', fc2id)
+            else:
+                self._logger.debug('Using anonymous account')
+
             return '%(url)s?control_token=%(control_token)s' % info
 
     async def get_meta(self, force_refetch=False):
@@ -248,12 +267,20 @@ class FC2LiveStream():
             'user': 1,
             'streamid': self.channel_id,
         }
+        self._logger.trace('get_meta>', url, data)
         async with self._session.post(url, data=data) as resp:
             # FC2 returns text/javascript instead of application/json
             # Content type is specified so aiohttp knows what to expect
             data = await resp.json(content_type='text/javascript')
+            self._logger.trace('<get_meta', data)
             self._meta = data['data']
             return data['data']
+
+    def _get_cookie(self, key):
+        jar = self._session.cookie_jar
+        for cookie in jar:
+            if cookie.key == key:
+                return cookie
 
     class NotOnlineException(Exception):
         '''Raised when the channel is not currently broadcasting'''
@@ -363,14 +390,15 @@ class FC2LiveDL():
         self._format_outtmpl()
 
         # Parse cookies
-        self._cookies = None
+        self._cookie_jar = aiohttp.CookieJar()
         cookies_file = self.params['cookies_file']
         if cookies_file is not None:
-            self._cookies = self._parse_cookies_file(cookies_file)
-            self._logger.info('Loaded cookies from', cookies_file)
+            self._logger.info('Loading cookies from', cookies_file)
+            cookies = self._parse_cookies_file(cookies_file)
+            self._cookie_jar.update_cookies(cookies)
 
     async def __aenter__(self):
-        self._session = aiohttp.ClientSession(cookies=self._cookies)
+        self._session = aiohttp.ClientSession(cookie_jar=self._cookie_jar)
         return self
 
     async def __aexit__(self, *err):
@@ -561,11 +589,12 @@ class FC2LiveDL():
                 try:
                     domain, _flag, path, secure, _expiration, name, value = [t.strip() for t in line.split('\t')]
                     cookies[name] = value
-                    cookies[name]['domain'] = domain
+                    cookies[name]['domain'] = domain.replace('#HttpOnly_', '')
                     cookies[name]['path'] = path
                     cookies[name]['secure'] = secure
-                except:
-                    pass
+                    cookies[name]['httponly'] = domain.startswith('#HttpOnly_')
+                except Exception as ex:
+                    self._logger.trace(line, repr(ex), str(ex))
         return cookies
 
 class SmartFormatter(argparse.HelpFormatter):
@@ -629,10 +658,10 @@ Available format options:
     title (string): title of the live broadcast'''.format(FC2LiveDL.params['outtmpl'].replace('%', '%%'))
     )
 
-    #  parser.add_argument(
-        #  '--cookies',
-        #  help='Path to a cookies file.'
-    #  )
+    parser.add_argument(
+        '--cookies',
+        help='Path to a cookies file.'
+    )
 
     parser.add_argument(
         '--write-chat',
@@ -679,7 +708,7 @@ Available format options:
         'write_thumbnail': args.write_thumbnail,
         'wait_for_live': args.wait,
         'wait_poll_interval': args.poll_interval,
-        #  'cookies_file': args.cookies,
+        'cookies_file': args.cookies,
     }
     channel_id = args.url.split('https://live.fc2.com')[1].split('/')[1]
     logger = Logger('main')
