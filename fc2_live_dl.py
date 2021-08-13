@@ -11,7 +11,7 @@ import sys
 
 ABOUT = {
     'name': 'fc2-live-dl',
-    'version': '1.0.1',
+    'version': '1.0.2',
     'date': '2021-08-09',
     'description': 'Download fc2 livestreams',
     'author': 'hizkifw',
@@ -66,7 +66,7 @@ class Logger():
         if spin:
             args.insert(0, self._spin())
         end = '\033[K\r' if inline else '\033[K\n'
-        print('{}[{}]'.format(prefix, self._module), *args, end=end)
+        print('{}[{}]'.format(prefix, self._module), *args, end=end, flush=True)
 
 class AsyncMap():
     def __init__(self):
@@ -247,12 +247,15 @@ class LiveStreamRecorder():
         self._logger.trace('exit', err)
         ret = self._ffmpeg.returncode
         if ret is None:
-            if hasattr(signal, 'CTRL_C_EVENT'):
-                # windows
-                self._ffmpeg.send_signal(signal.CTRL_C_EVENT) # pylint: disable=no-member
-            else:
-                # unix
-                self._ffmpeg.send_signal(signal.SIGINT) # pylint: disable=no-member
+            try:
+                if hasattr(signal, 'CTRL_C_EVENT'):
+                    # windows
+                    self._ffmpeg.send_signal(signal.CTRL_C_EVENT) # pylint: disable=no-member
+                else:
+                    # unix
+                    self._ffmpeg.send_signal(signal.SIGINT) # pylint: disable=no-member
+            except Exception as ex:
+                self._logger.error('unable to stop ffmpeg:', repr(ex))
         ret = await self._ffmpeg.wait()
         self._logger.debug('exited with code', ret)
 
@@ -387,7 +390,6 @@ class FC2LiveDL():
             for task in tasks:
                 if not task.done():
                     task.cancel()
-            await asyncio.wait(tasks)
 
     async def _download_stream(self, hls_url, fname):
         async with LiveStreamRecorder(hls_url, fname) as rec:
@@ -515,9 +517,16 @@ class SmartFormatter(argparse.HelpFormatter):
         return argparse.HelpFormatter._split_lines(self, text, width)
 
 async def main(args):
+    version = '%(name)s v%(version)s' % ABOUT
     parser = argparse.ArgumentParser(formatter_class=SmartFormatter)
     parser.add_argument('url',
         help='A live.fc2.com URL.'
+    )
+
+    parser.add_argument(
+        '-v', '--version',
+        action='version',
+        version=version
     )
     parser.add_argument(
         '--quality',
@@ -594,7 +603,7 @@ Available format options:
     channel_id = args.url.split('https://live.fc2.com')[1].split('/')[1]
     logger = Logger('main')
 
-    logger.info('%(name)s v%(version)s' % ABOUT)
+    logger.info(version)
 
     async with FC2LiveDL(params) as fc2:
         try:
@@ -614,7 +623,6 @@ if __name__ == '__main__':
         loop.run_until_complete(task)
     except KeyboardInterrupt:
         task.cancel()
-        loop.run_until_complete(task)
     finally:
         # Give some time for aiohttp cleanup
         loop.run_until_complete(asyncio.sleep(0.250))
