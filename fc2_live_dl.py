@@ -55,21 +55,18 @@ class Logger():
         if self.loglevel >= self.LOGLEVELS['error']:
             self._print('\033[31m', *args, **kwargs)
 
-    def infol(self, *args):
-        if self.loglevel >= self.LOGLEVELS['info']:
-            self._print('\033[2K', *args, end='\r')
-
-    def endl(self):
-        if self.loglevel >= self.LOGLEVELS['info']:
-            print('')
-
-    def infospin(self, *args):
+    def _spin(self):
         chars = '⡆⠇⠋⠙⠸⢰⣠⣄'
         self._loadspin_n = (self._loadspin_n + 1) % len(chars)
-        self.infol(chars[self._loadspin_n], *args)
+        return chars[self._loadspin_n]
 
-    def _print(self, prefix, *args, **kwargs):
-        print(prefix + '[{}]'.format(self._module), *args, '\033[0m', **kwargs)
+    def _print(self, prefix, *args, inline=False, spin=False):
+        args = list(args)
+        args.append('\033[0m')
+        if spin:
+            args.insert(0, self._spin())
+        end = '\033[K\r' if inline else '\033[K\n'
+        print('{}[{}]'.format(prefix, self._module), *args, end=end)
 
 class AsyncMap():
     def __init__(self):
@@ -179,7 +176,7 @@ class FC2LiveStream():
     async def wait_for_online(self, interval):
         while not await self.is_online():
             for _ in range(interval):
-                self._logger.infospin('Waiting for stream')
+                self._logger.info('Waiting for stream', inline=True, spin=True)
                 await asyncio.sleep(1)
 
     async def is_online(self, *, refetch=True):
@@ -187,9 +184,10 @@ class FC2LiveStream():
         return len(meta['channel_data']['version']) > 0
 
     async def get_websocket_url(self):
-        if not self.is_online:
-            raise self.NotOnlineException()
         meta = await self.get_meta()
+        if not await self.is_online(refetch=False):
+            raise self.NotOnlineException()
+
         url = 'https://live.fc2.com/api/getControlServer.php'
         data = {
             'channel_id': self.channel_id,
@@ -256,10 +254,9 @@ class LiveStreamRecorder():
     async def print_status(self):
         try:
             status = await self.get_status()
-            self._logger.infol(status['time'], status['size'])
+            self._logger.info(status['time'], status['size'], inline=True)
             return True
         except:
-            self._logger.endl()
             return False
 
     async def get_status(self):
@@ -331,6 +328,7 @@ class FC2LiveDL():
         self._session = None
 
     async def download(self, channel_id):
+        tasks = []
         try:
             live = FC2LiveStream(self._session, channel_id)
 
@@ -376,22 +374,28 @@ class FC2LiveDL():
                     coros.append(self._download_chat(ws, fname_chat))
 
                 tasks = [asyncio.create_task(coro) for coro in coros]
-                await asyncio.wait(tasks)
+                await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
 
         except asyncio.CancelledError:
-            self._logger.info('Interrupted by user')
+            self._logger.error('Interrupted by user')
+        finally:
+            for task in tasks:
+                if not task.done():
+                    task.cancel()
+            await asyncio.wait(tasks)
 
     async def _download_stream(self, hls_url, fname):
         async with LiveStreamRecorder(hls_url, fname) as rec:
-            self._logger.infol('Starting download')
+            self._logger.info('Starting download', inline=True)
             while await rec.print_status():
                 pass
 
     async def _download_chat(self, ws, fname):
         with open(fname, 'w') as f:
-            comment = await ws.comments.get()
-            f.write(json.dumps(comment))
-            f.write('\n')
+            while True:
+                comment = await ws.comments.get()
+                f.write(json.dumps(comment))
+                f.write('\n')
 
     def _get_hls_url(self, hls_info):
         mode = self._get_mode()
@@ -408,6 +412,15 @@ class FC2LiveDL():
 
         if playlist is None:
             playlist = sorted_playlists[0]
+            self._logger.warn(
+                'Requested quality',
+                self._format_mode(mode),
+                'is not available'
+            )
+            self._logger.warn(
+                'falling back to next best quality',
+                self._format_mode(playlist['mode'])
+            )
 
         return playlist
 
