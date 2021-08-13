@@ -284,6 +284,8 @@ class FC2LiveStream():
 
     class NotOnlineException(Exception):
         '''Raised when the channel is not currently broadcasting'''
+        def __str__(self):
+            return 'Live stream is currently not online'
 
 class LiveStreamRecorder():
     FFMPEG_BIN = 'ffmpeg'
