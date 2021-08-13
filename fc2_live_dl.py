@@ -11,7 +11,7 @@ import sys
 
 ABOUT = {
     'name': 'fc2-live-dl',
-    'version': '1.0.0',
+    'version': '1.0.1',
     'date': '2021-08-09',
     'description': 'Download fc2 livestreams',
     'author': 'hizkifw',
@@ -304,7 +304,7 @@ class FC2LiveDL():
     params = {
         'quality': '3Mbps',
         'latency': 'mid',
-        'outtmpl': '%(channel_id)s-%(date)s-%(title)s.%(ext)s',
+        'outtmpl': '%(date)s %(title)s (%(channel_name)s).%(ext)s',
         'write_chat': False,
         'write_info_json': False,
         'write_thumbnail': False,
@@ -454,7 +454,8 @@ class FC2LiveDL():
         finfo = {
             'channel_id': '',
             'channel_name': '',
-            'date': datetime.now().strftime('%F_%H%M%S'),
+            'date': datetime.now().strftime('%F'),
+            'time': datetime.now().strftime('%H%M%S'),
             'title': '',
             'ext': ''
         }
@@ -520,7 +521,8 @@ async def main(args):
 Available format options:
     channel_id (string): ID of the broadcast
     channel_name (string): broadcaster's profile name
-    date (string): current date and time in the format YYYY-MM-DD_HHMMSS
+    date (string): local date YYYY-MM-DD
+    time (string): local time HHMMSS
     ext (string): file extension
     title (string): title of the live broadcast'''.format(FC2LiveDL.params['outtmpl'].replace('%', '%%'))
     )
@@ -573,6 +575,9 @@ Available format options:
     }
     channel_id = args.url.split('https://live.fc2.com')[1].split('/')[1]
     logger = Logger('main')
+
+    logger.info('%(name)s v%(version)s' % ABOUT)
+
     async with FC2LiveDL(params) as fc2:
         try:
             await fc2.download(channel_id)

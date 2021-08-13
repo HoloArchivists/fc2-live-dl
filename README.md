@@ -35,14 +35,14 @@ optional arguments:
                         experiencing stability issues. Default is mid.
   -o OUTPUT, --output OUTPUT
                         Set the output filename format. Supports formatting
-                        options similar to youtube-dl. Default is
-                        '%(channel_id)s-%(date)s-%(title)s.%(ext)s'
+                        options similar to youtube-dl. Default is '%(date)s
+                        %(title)s (%(channel_name)s).%(ext)s'
                         
                         Available format options:
                             channel_id (string): ID of the broadcast
                             channel_name (string): broadcaster's profile name
-                        date (string): current date and time in the format
-                        YYYY-MM-DD_HHMMSS
+                            date (string): local date YYYY-MM-DD
+                            time (string): local time HHMMSS
                             ext (string): file extension
                             title (string): title of the live broadcast
   --write-chat          Save live chat into a json file.
