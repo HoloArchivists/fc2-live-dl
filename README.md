@@ -12,6 +12,7 @@
 
 - Wait for a stream to start and automatically start recording
 - Save comment/chat logs
+- Authenticate with cookies (Netscape format, same one used with youtube-dl)
 
 ## Usage
 
@@ -20,10 +21,11 @@ python3 fc2_live_dl.py https://live.fc2.com/<...>
 ```
 
 ```
-usage: fc2_live_dl.py [-h]
+usage: fc2_live_dl.py [-h] [-v]
                       [--quality {150Kbps,400Kbps,1.2Mbps,2Mbps,3Mbps,sound}]
-                      [--latency {low,high,mid}] [-o OUTPUT] [--write-chat]
-                      [--write-info-json] [--write-thumbnail] [--wait]
+                      [--latency {low,high,mid}] [-o OUTPUT]
+                      [--cookies COOKIES] [--write-chat] [--write-info-json]
+                      [--write-thumbnail] [--wait]
                       [--poll-interval POLL_INTERVAL]
                       [--log-level {silent,error,warn,info,debug,trace}]
                       url
@@ -33,6 +35,7 @@ positional arguments:
 
 optional arguments:
   -h, --help            show this help message and exit
+  -v, --version         show program's version number and exit
   --quality {150Kbps,400Kbps,1.2Mbps,2Mbps,3Mbps,sound}
                         Quality of the stream to download. Default is 3Mbps.
   --latency {low,high,mid}
@@ -50,6 +53,7 @@ optional arguments:
                             time (string): local time HHMMSS
                             ext (string): file extension
                             title (string): title of the live broadcast
+  --cookies COOKIES     Path to a cookies file.
   --write-chat          Save live chat into a json file.
   --write-info-json     Dump output stream information into a json file.
   --write-thumbnail     Download thumbnail into a file
