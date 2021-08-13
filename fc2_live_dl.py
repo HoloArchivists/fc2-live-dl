@@ -247,7 +247,12 @@ class LiveStreamRecorder():
         self._logger.trace('exit', err)
         ret = self._ffmpeg.returncode
         if ret is None:
-            self._ffmpeg.send_signal(signal.SIGINT)
+            if hasattr(signal, 'CTRL_C_EVENT'):
+                # windows
+                self._ffmpeg.send_signal(signal.CTRL_C_EVENT)
+            else:
+                # unix
+                self._ffmpeg.send_signal(signal.SIGINT)
         ret = await self._ffmpeg.wait()
         self._logger.debug('exited with code', ret)
 
