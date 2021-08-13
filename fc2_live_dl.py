@@ -249,10 +249,10 @@ class LiveStreamRecorder():
         if ret is None:
             if hasattr(signal, 'CTRL_C_EVENT'):
                 # windows
-                self._ffmpeg.send_signal(signal.CTRL_C_EVENT)
+                self._ffmpeg.send_signal(signal.CTRL_C_EVENT) # pylint: disable=no-member
             else:
                 # unix
-                self._ffmpeg.send_signal(signal.SIGINT)
+                self._ffmpeg.send_signal(signal.SIGINT) # pylint: disable=no-member
         ret = await self._ffmpeg.wait()
         self._logger.debug('exited with code', ret)
 
