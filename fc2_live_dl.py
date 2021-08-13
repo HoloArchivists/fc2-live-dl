@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 from datetime import datetime
+import http.cookies
 import argparse
 import asyncio
 import aiohttp
@@ -93,6 +94,7 @@ class FC2WebSocket():
         self._url = url
         self._msg_id = 0
         self._msg_responses = AsyncMap()
+        self._last_heartbeat = 0
         self._is_ready = False
         self._logger = Logger('ws')
         self.comments = asyncio.Queue()
@@ -101,27 +103,31 @@ class FC2WebSocket():
         self._loop = asyncio.get_running_loop()
         self._ws = await self._session.ws_connect(self._url)
         self._logger.debug('connected')
-        coros = [self._handle_incoming, self._handle_heartbeat]
-        self._tasks = [self._loop.create_task(coro()) for coro in coros]
+        self._task = asyncio.create_task(
+            self._main_loop(),
+            name='main_loop'
+        )
         return self
 
     async def __aexit__(self, *err):
         self._logger.trace('exit', err)
-        self._logger.trace('exception', self._ws.exception())
-        for task in self._tasks:
-            if not task.done():
-                task.cancel()
-        await asyncio.wait(self._tasks)
+        if not self._task.done():
+            self._task.cancel()
         await self._ws.close()
         self._logger.debug('closed')
+
+    async def wait_disconnection(self):
+        res = await self._task
+        if res.exception() is not None:
+            raise res.exception()
 
     async def get_hls_information(self):
         msg = await self._send_message_and_wait('get_hls_information')
         return msg['arguments']
 
-    async def _handle_incoming(self):
+    async def _main_loop(self):
         while True:
-            msg = await self._ws.receive_json()
+            msg = await asyncio.wait_for(self._ws.receive_json(), self.heartbeat_interval)
             self._logger.trace('<', json.dumps(msg)[:100])
             if msg['name'] == 'connect_complete':
                 self._is_ready = True
@@ -131,21 +137,37 @@ class FC2WebSocket():
                 code = msg['arguments']['code']
                 if code == 4101:
                     raise self.PaidProgramDisconnection()
+                elif code == 4507:
+                    raise self.LoginRequiredError()
                 elif code == 4512:
                     raise self.MultipleConnectionError()
+                else:
+                    raise self.ServerDisconnection(code)
             elif msg['name'] == 'comment':
                 for comment in msg['arguments']['comments']:
                     await self.comments.put(comment)
 
-    async def _handle_heartbeat(self):
-        while True:
-            self._logger.debug('heartbeat')
-            await self._send_message('heartbeat')
-            await asyncio.sleep(self.heartbeat_interval)
+            await self._try_heartbeat()
+
+    async def _try_heartbeat(self):
+        if time.time() - self._last_heartbeat < self.heartbeat_interval:
+            return
+        self._logger.debug('heartbeat')
+        await self._send_message('heartbeat')
+        self._last_heartbeat = time.time()
 
     async def _send_message_and_wait(self, name, arguments={}):
         msg_id = await self._send_message(name, arguments)
-        return await self._msg_responses.pop(msg_id)
+        msg_wait_task = asyncio.create_task(self._msg_responses.pop(msg_id))
+        _done, _pending = await asyncio.wait(
+            [msg_wait_task, self._task],
+            return_when=asyncio.FIRST_COMPLETED
+        )
+        done = _done.pop()
+        if done.get_name() == 'main_loop':
+            _pending.pop().cancel()
+            raise done.exception()
+        return done.result()
 
     async def _send_message(self, name, arguments={}):
         self._msg_id += 1
@@ -159,12 +181,24 @@ class FC2WebSocket():
 
     class ServerDisconnection(Exception):
         '''Raised when the server sends a `control_disconnection` message'''
+        def __init__(self, code=None):
+            if code is not None:
+                self.code = code
 
-    class MultipleConnectionError(ServerDisconnection):
-        '''Raised when the server detects multiple connections to the same live stream'''
+        def __str__(self):
+            return 'Server disconnected with code {}'.format(self.code)
 
     class PaidProgramDisconnection(ServerDisconnection):
         '''Raised when the streamer switches the broadcast to a paid program'''
+        code = 4101
+
+    class LoginRequiredError(ServerDisconnection):
+        '''Raised when the stream requires a login'''
+        code = 4507
+
+    class MultipleConnectionError(ServerDisconnection):
+        '''Raised when the server detects multiple connections to the same live stream'''
+        code = 4512
 
 class FC2LiveStream():
     def __init__(self, session, channel_id):
@@ -236,7 +270,7 @@ class LiveStreamRecorder():
         self._loop = asyncio.get_running_loop()
         self._ffmpeg = await asyncio.create_subprocess_exec(
             self.FFMPEG_BIN,
-            '-hide_banner', '-loglevel', 'fatal', '-stats',
+            '-y', '-hide_banner', '-loglevel', 'fatal', '-stats',
             '-i', self.src, '-c', 'copy', self.dest,
             stdout=asyncio.subprocess.DEVNULL,
             stderr=asyncio.subprocess.PIPE
@@ -255,7 +289,7 @@ class LiveStreamRecorder():
                     # unix
                     self._ffmpeg.send_signal(signal.SIGINT) # pylint: disable=no-member
             except Exception as ex:
-                self._logger.error('unable to stop ffmpeg:', repr(ex))
+                self._logger.error('unable to stop ffmpeg:', repr(ex), str(ex))
         ret = await self._ffmpeg.wait()
         self._logger.debug('exited with code', ret)
 
@@ -269,6 +303,7 @@ class LiveStreamRecorder():
 
     async def get_status(self):
         stderr = (await self._ffmpeg.stderr.readuntil(b'\r')).decode('utf-8')
+        self._logger.trace(stderr)
         stats = {
             'frame': 0,
             'fps': 0,
@@ -315,6 +350,7 @@ class FC2LiveDL():
         'write_thumbnail': False,
         'wait_for_live': False,
         'wait_poll_interval': 5,
+        'cookies_file': None,
     }
 
     _session = None
@@ -326,8 +362,15 @@ class FC2LiveDL():
         # Validate outtmpl
         self._format_outtmpl()
 
+        # Parse cookies
+        self._cookies = None
+        cookies_file = self.params['cookies_file']
+        if cookies_file is not None:
+            self._cookies = self._parse_cookies_file(cookies_file)
+            self._logger.info('Loaded cookies from', cookies_file)
+
     async def __aenter__(self):
-        self._session = aiohttp.ClientSession()
+        self._session = aiohttp.ClientSession(cookies=self._cookies)
         return self
 
     async def __aexit__(self, *err):
@@ -372,6 +415,8 @@ class FC2LiveDL():
 
                 coros = []
 
+                coros.append(ws.wait_disconnection())
+
                 fname_stream = self._format_outtmpl(meta, { 'ext': 'ts' })
                 self._logger.info('Writing stream to', fname_stream)
                 coros.append(self._download_stream(hls_url, fname_stream))
@@ -382,7 +427,23 @@ class FC2LiveDL():
                     coros.append(self._download_chat(ws, fname_chat))
 
                 tasks = [asyncio.create_task(coro) for coro in coros]
-                await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+
+                self._logger.debug('Starting', len(tasks), 'tasks')
+                _exited, _pending = await asyncio.wait(
+                    tasks,
+                    return_when=asyncio.FIRST_COMPLETED
+                )
+                self._logger.debug('Tasks exited')
+
+                while len(_pending) > 0:
+                    pending_task = _pending.pop()
+                    self._logger.trace('Cancelling pending task', pending_task)
+                    pending_task.cancel()
+
+                exited = _exited.pop()
+                self._logger.trace('Exited task was', exited)
+                if exited.exception() is not None:
+                    raise exited.exception()
 
         except asyncio.CancelledError:
             self._logger.error('Interrupted by user')
@@ -493,6 +554,20 @@ class FC2LiveDL():
 
         return formatted
 
+    def _parse_cookies_file(self, cookies_file):
+        cookies = http.cookies.SimpleCookie()
+        with open(cookies_file, 'r') as cf:
+            for line in cf:
+                try:
+                    domain, _flag, path, secure, _expiration, name, value = [t.strip() for t in line.split('\t')]
+                    cookies[name] = value
+                    cookies[name]['domain'] = domain
+                    cookies[name]['path'] = path
+                    cookies[name]['secure'] = secure
+                except:
+                    pass
+        return cookies
+
 class SmartFormatter(argparse.HelpFormatter):
     def flatten(self, input_array):
         result_array = []
@@ -554,6 +629,11 @@ Available format options:
     title (string): title of the live broadcast'''.format(FC2LiveDL.params['outtmpl'].replace('%', '%%'))
     )
 
+    #  parser.add_argument(
+        #  '--cookies',
+        #  help='Path to a cookies file.'
+    #  )
+
     parser.add_argument(
         '--write-chat',
         action='store_true',
@@ -599,6 +679,7 @@ Available format options:
         'write_thumbnail': args.write_thumbnail,
         'wait_for_live': args.wait,
         'wait_poll_interval': args.poll_interval,
+        #  'cookies_file': args.cookies,
     }
     channel_id = args.url.split('https://live.fc2.com')[1].split('/')[1]
     logger = Logger('main')
@@ -608,12 +689,8 @@ Available format options:
     async with FC2LiveDL(params) as fc2:
         try:
             await fc2.download(channel_id)
-        except FC2LiveStream.NotOnlineException:
-            logger.error('Stream is not online')
-        except FC2WebSocket.MultipleConnectionError:
-            logger.error('Disconnected: multiple connections')
-        except FC2WebSocket.PaidProgramDisconnection:
-            logger.error('Disconnected: broadcast has switched to a paid program')
+        except Exception as ex:
+            logger.error(repr(ex), str(ex))
 
 if __name__ == '__main__':
     # Set up asyncio loop

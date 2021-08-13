@@ -8,6 +8,11 @@
 - ffmpeg
 - aiohttp (`pip install -r requirements.txt`)
 
+## Features
+
+- Wait for a stream to start and automatically start recording
+- Save comment/chat logs
+
 ## Usage
 
 ```
@@ -59,5 +64,5 @@ optional arguments:
 
 ## Notes
 
-- FC2 does not allow multiple connections, so you can't watch in the browser while downloading. You can instead preview the file being downloaded using `mpv` or `vlc`. Alternatively, log in with an account on your browser.
+- FC2 does not allow multiple connections to the same stream, so you can't watch in the browser while downloading. You can instead preview the file being downloaded using `mpv` or `vlc`. Alternatively, log in with an account on your browser.
 - Recordings are saved as `.ts` by default. You can remux it to `mp4` using `ffmpeg -i path/to/file.ts -c copy -movflags faststart output.mp4`
