@@ -4,7 +4,7 @@
 
 ## Requirements
 
-- python 3.7
+- python 3.8
 - ffmpeg
 - aiohttp (`pip install -r requirements.txt`)
 
