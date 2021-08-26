@@ -13,8 +13,8 @@ import sys
 
 ABOUT = {
     'name': 'fc2-live-dl',
-    'version': '1.0.2',
-    'date': '2021-08-09',
+    'version': '1.0.3',
+    'date': '2021-08-26',
     'description': 'Download fc2 livestreams',
     'author': 'hizkifw',
     'license': 'MIT',
@@ -124,7 +124,28 @@ class FC2WebSocket():
             raise res.exception()
 
     async def get_hls_information(self):
-        msg = await self._send_message_and_wait('get_hls_information')
+        msg = None
+        tries = 0
+        max_tries = 5
+
+        while msg is None and tries < max_tries:
+            msg = await self._send_message_and_wait('get_hls_information', timeout=5)
+
+            backoff_delay = 2 ** tries
+            tries += 1
+
+            if msg is None:
+                self._logger.warn('Timeout reached waiting for HLS information, retrying in', backoff_delay, 'seconds')
+                await asyncio.sleep(backoff_delay)
+            elif 'playlists' not in msg['arguments']:
+                msg = None
+                self._logger.warn('Received empty playlist, retrying in', backoff_delay, 'seconds')
+                await asyncio.sleep(backoff_delay)
+
+        if tries == max_tries:
+            self._logger.error('Gave up after', tries, 'tries')
+            raise self.EmptyPlaylistException()
+
         return msg['arguments']
 
     async def _main_loop(self):
@@ -158,17 +179,29 @@ class FC2WebSocket():
         await self._send_message('heartbeat')
         self._last_heartbeat = time.time()
 
-    async def _send_message_and_wait(self, name, arguments={}):
+    async def _send_message_and_wait(self, name, arguments={}, *, timeout=0):
         msg_id = await self._send_message(name, arguments)
         msg_wait_task = asyncio.create_task(self._msg_responses.pop(msg_id))
+        tasks = [msg_wait_task, self._task]
+
+        if timeout > 0:
+            tasks.append(
+                asyncio.create_task(
+                    asyncio.sleep(timeout),
+                    name='timeout'
+                )
+            )
+
         _done, _pending = await asyncio.wait(
-            [msg_wait_task, self._task],
+            tasks,
             return_when=asyncio.FIRST_COMPLETED
         )
         done = _done.pop()
         if done.get_name() == 'main_loop':
             _pending.pop().cancel()
             raise done.exception()
+        elif done.get_name() == 'timeout':
+            return None
         return done.result()
 
     async def _send_message(self, name, arguments={}):
@@ -201,6 +234,11 @@ class FC2WebSocket():
     class MultipleConnectionError(ServerDisconnection):
         '''Raised when the server detects multiple connections to the same live stream'''
         code = 4512
+
+    class EmptyPlaylistException(Exception):
+        '''Raised when the server did not return a valid playlist'''
+        def __str__(self):
+            return 'Server did not return a valid playlist'
 
 class FC2LiveStream():
     def __init__(self, session, channel_id):
@@ -716,6 +754,7 @@ Available format options:
     logger = Logger('main')
 
     logger.info(version)
+    logger.debug('Using options:', json.dumps(vars(args), indent=2))
 
     async with FC2LiveDL(params) as fc2:
         try:
