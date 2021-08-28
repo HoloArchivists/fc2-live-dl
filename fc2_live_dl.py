@@ -13,8 +13,8 @@ import sys
 
 ABOUT = {
     'name': 'fc2-live-dl',
-    'version': '1.0.3',
-    'date': '2021-08-26',
+    'version': '1.0.4',
+    'date': '2021-08-28',
     'description': 'Download fc2 livestreams',
     'author': 'hizkifw',
     'license': 'MIT',
@@ -255,7 +255,7 @@ class FC2LiveStream():
 
     async def is_online(self, *, refetch=True):
         meta = await self.get_meta(refetch)
-        return len(meta['channel_data']['version']) > 0
+        return meta['channel_data']['is_publish'] > 0
 
     async def get_websocket_url(self):
         meta = await self.get_meta()
