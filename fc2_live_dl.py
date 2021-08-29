@@ -10,11 +10,12 @@ import signal
 import time
 import json
 import sys
+import os
 
 ABOUT = {
     'name': 'fc2-live-dl',
-    'version': '1.0.4',
-    'date': '2021-08-28',
+    'version': '1.1.0',
+    'date': '2021-08-29',
     'description': 'Download fc2 livestreams',
     'author': 'hizkifw',
     'license': 'MIT',
@@ -325,20 +326,18 @@ class FC2LiveStream():
         def __str__(self):
             return 'Live stream is currently not online'
 
-class LiveStreamRecorder():
+class FFMpeg():
     FFMPEG_BIN = 'ffmpeg'
 
-    def __init__(self, src, dest):
-        self._logger = Logger('recording')
-        self.src = src
-        self.dest = dest
+    def __init__(self, flags):
+        self._logger = Logger('ffmpeg')
+        self._ffmpeg = None
+        self._flags = flags
 
     async def __aenter__(self):
         self._loop = asyncio.get_running_loop()
         self._ffmpeg = await asyncio.create_subprocess_exec(
-            self.FFMPEG_BIN,
-            '-y', '-hide_banner', '-loglevel', 'fatal', '-stats',
-            '-i', self.src, '-c', 'copy', self.dest,
+            self.FFMPEG_BIN, *self._flags,
             stdout=asyncio.subprocess.DEVNULL,
             stderr=asyncio.subprocess.PIPE
         )
@@ -363,7 +362,7 @@ class LiveStreamRecorder():
     async def print_status(self):
         try:
             status = await self.get_status()
-            self._logger.info(status['time'], status['size'], inline=True)
+            self._logger.info('[q] to stop', status['time'], status['size'], inline=True)
             return True
         except:
             return False
@@ -418,6 +417,8 @@ class FC2LiveDL():
         'wait_for_live': False,
         'wait_poll_interval': 5,
         'cookies_file': None,
+        'remux': True,
+        'keep_intermediates': False,
     }
 
     _session = None
@@ -453,14 +454,21 @@ class FC2LiveDL():
 
             self._logger.info('Fetching stream info')
             meta = await live.get_meta()
+
+            fname_info = self._format_outtmpl(meta, { 'ext': 'info.json' })
+            fname_thumb = self._format_outtmpl(meta, { 'ext': 'png' })
+            fname_stream = self._format_outtmpl(meta, { 'ext': 'ts' })
+            fname_chat = self._format_outtmpl(meta, { 'ext': 'fc2chat.json' })
+            fname_muxed = self._format_outtmpl(meta, {
+                'ext': 'm4a' if self.params['quality'] == 'sound' else 'mp4'
+            })
+
             if self.params['write_info_json']:
-                fname_info = self._format_outtmpl(meta, { 'ext': 'info.json' })
                 self._logger.info('Writing info json to', fname_info)
                 with open(fname_info, 'w') as f:
                     f.write(json.dumps(meta))
 
             if self.params['write_thumbnail']:
-                fname_thumb = self._format_outtmpl(meta, { 'ext': 'png' })
                 self._logger.info('Writing thumbnail to', fname_thumb)
                 thumb_url = meta['channel_data']['image']
                 async with self._session.get(thumb_url) as resp:
@@ -485,12 +493,10 @@ class FC2LiveDL():
 
                 coros.append(ws.wait_disconnection())
 
-                fname_stream = self._format_outtmpl(meta, { 'ext': 'ts' })
                 self._logger.info('Writing stream to', fname_stream)
                 coros.append(self._download_stream(hls_url, fname_stream))
 
                 if self.params['write_chat']:
-                    fname_chat = self._format_outtmpl(meta, { 'ext': 'fc2chat.json' })
                     self._logger.info('Writing chat to', fname_chat)
                     coros.append(self._download_chat(ws, fname_chat))
 
@@ -512,7 +518,6 @@ class FC2LiveDL():
                 self._logger.trace('Exited task was', exited)
                 if exited.exception() is not None:
                     raise exited.exception()
-
         except asyncio.CancelledError:
             self._logger.error('Interrupted by user')
         finally:
@@ -520,10 +525,38 @@ class FC2LiveDL():
                 if not task.done():
                     task.cancel()
 
+        if self.params['remux'] and os.path.isfile(fname_stream):
+            self._logger.info('Remuxing stream to', fname_muxed)
+            await self._remux_stream(fname_stream, fname_muxed)
+            self._logger.debug('Finished remuxing stream', fname_muxed)
+            if not self.params['keep_intermediates'] and os.path.isfile(fname_muxed):
+                self._logger.info('Removing intermediate files')
+                os.remove(fname_stream)
+            else:
+                self._logger.debug('Not removing intermediates')
+        else:
+            self._logger.debug('Not remuxing stream')
+
+        self._logger.info('Done')
+
     async def _download_stream(self, hls_url, fname):
-        async with LiveStreamRecorder(hls_url, fname) as rec:
+        rec_flags = [
+            '-y', '-hide_banner', '-loglevel', 'fatal', '-stats',
+            '-i', hls_url, '-c', 'copy', fname
+        ]
+        async with FFMpeg(rec_flags) as rec:
             self._logger.info('Starting download', inline=True)
             while await rec.print_status():
+                pass
+
+    async def _remux_stream(self, ifname, ofname):
+        mux_flags = [
+            '-y', '-hide_banner', '-loglevel', 'fatal', '-stats',
+            '-i', ifname, '-c', 'copy', '-movflags', 'faststart', ofname
+        ]
+        async with FFMpeg(mux_flags) as mux:
+            self._logger.info('Remuxing stream', inline=True)
+            while await mux.print_status():
                 pass
 
     async def _download_chat(self, ws, fname):
@@ -699,6 +732,17 @@ Available format options:
     )
 
     parser.add_argument(
+        '--no-remux',
+        action='store_true',
+        help='Do not remux recordings into mp4/m4a after it is finished.'
+    )
+    parser.add_argument(
+        '-k', '--keep-intermediates',
+        action='store_true',
+        help='Keep the raw .ts recordings after it has been remuxed.'
+    )
+
+    parser.add_argument(
         '--cookies',
         help='Path to a cookies file.'
     )
@@ -749,6 +793,8 @@ Available format options:
         'wait_for_live': args.wait,
         'wait_poll_interval': args.poll_interval,
         'cookies_file': args.cookies,
+        'remux': not args.no_remux,
+        'keep_intermediates': args.keep_intermediates,
     }
     channel_id = args.url.split('https://live.fc2.com')[1].split('/')[1]
     logger = Logger('main')
