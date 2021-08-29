@@ -13,6 +13,7 @@
 - Wait for a stream to start and automatically start recording
 - Save comment/chat logs
 - Authenticate with cookies (Netscape format, same one used with youtube-dl)
+- Remux recordings to .mp4/.m4a after it's done
 
 ## Usage
 
@@ -23,7 +24,7 @@ python3 fc2_live_dl.py https://live.fc2.com/<...>
 ```
 usage: fc2_live_dl.py [-h] [-v]
                       [--quality {150Kbps,400Kbps,1.2Mbps,2Mbps,3Mbps,sound}]
-                      [--latency {low,high,mid}] [-o OUTPUT]
+                      [--latency {low,high,mid}] [-o OUTPUT] [--no-remux] [-k]
                       [--cookies COOKIES] [--write-chat] [--write-info-json]
                       [--write-thumbnail] [--wait]
                       [--poll-interval POLL_INTERVAL]
@@ -53,6 +54,10 @@ optional arguments:
                             time (string): local time HHMMSS
                             ext (string): file extension
                             title (string): title of the live broadcast
+  --no-remux            Do not remux recordings into mp4/m4a after it is
+                        finished.
+  -k, --keep-intermediates
+                        Keep the raw .ts recordings after it has been remuxed.
   --cookies COOKIES     Path to a cookies file.
   --write-chat          Save live chat into a json file.
   --write-info-json     Dump output stream information into a json file.
@@ -69,4 +74,4 @@ optional arguments:
 ## Notes
 
 - FC2 does not allow multiple connections to the same stream, so you can't watch in the browser while downloading. You can instead preview the file being downloaded using `mpv` or `vlc`. Alternatively, log in with an account on your browser.
-- Recordings are saved as `.ts` by default. You can remux it to `mp4` using `ffmpeg -i path/to/file.ts -c copy -movflags faststart output.mp4`
+- Recording only starts from when you start the tool. This tool cannot "seek back" and record streams from the start.
