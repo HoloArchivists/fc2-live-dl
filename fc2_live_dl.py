@@ -14,8 +14,8 @@ import os
 
 ABOUT = {
     'name': 'fc2-live-dl',
-    'version': '1.1.0',
-    'date': '2021-08-29',
+    'version': '1.1.1',
+    'date': '2021-09-05',
     'description': 'Download fc2 livestreams',
     'author': 'hizkifw',
     'license': 'MIT',
@@ -796,8 +796,18 @@ Available format options:
         'remux': not args.no_remux,
         'keep_intermediates': args.keep_intermediates,
     }
-    channel_id = args.url.split('https://live.fc2.com')[1].split('/')[1]
+
     logger = Logger('main')
+
+    channel_id = None
+    try:
+        channel_id = args.url \
+            .replace('http:', 'https:') \
+            .split('https://live.fc2.com')[1] \
+            .split('/')[1]
+    except:
+        logger.error('Error parsing URL: please provide a https://live.fc2.com/ URL.')
+        return False
 
     logger.info(version)
     logger.debug('Using options:', json.dumps(vars(args), indent=2))
