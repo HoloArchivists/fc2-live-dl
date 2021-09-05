@@ -14,6 +14,7 @@
 - Save comment/chat logs
 - Authenticate with cookies (Netscape format, same one used with youtube-dl)
 - Remux recordings to .mp4/.m4a after it's done
+- Continuously monitor multiple streams in parallel and automatically start downloading when any of them goes online
 
 ## Usage
 
@@ -70,6 +71,50 @@ optional arguments:
   --log-level {silent,error,warn,info,debug,trace}
                         Log level verbosity. Default is info.
 ```
+
+## autofc2
+
+> Monitor multiple channels at the same time, and automatically start downloading when any of them goes online
+
+Create a file called `autofc2.json` following the example below, and place the file next to the `autofc2.py` script.
+
+```json
+{
+  "default_params": {
+    "quality": "3Mbps",
+    "latency": "mid",
+    "outtmpl": "%(channel_name)s/%(date)s %(title)s.%(ext)s",
+    "write_chat": false,
+    "write_info_json": false,
+    "write_thumbnail": false,
+    "wait_for_live": true,
+    "wait_poll_interval": 5,
+    "cookies_file": null,
+    "remux": true,
+    "keep_intermediates": false
+  },
+  "channels": {
+    "91544481": {
+      "_name": "猫羽かりん",
+      "quality": "sound",
+      "write_thumbnail": true
+    },
+    "72364867": { "_name": "兎野さくら" },
+    "40740626": { "_name": "狛江撫子" },
+    "81840800": { "_name": "狼ノ宮ヒナギク" }
+  }
+}
+```
+
+The `default_params` object will be the parameters applied to all of the channels. Check the usage section above for more information on each parameter. You can also override the parameters per-channel. For organizational purposes, you can also write comments as arbitrary parameters. I'm using `_name` in the example above, but you can use anything as long as it doesn't conflict with the parameters.
+
+Once configured, you can run the script:
+
+```
+python3 autofc2.py
+```
+
+If you need to change the config json, feel free to change it while the script is running. It will reload the file if it detects any changes. Note that parameters will not be updated for ongoing streams (i.e. if the script is recording a stream and you change its settings, it will continue recording with the old settings and will only apply the new configuration to future recordings).
 
 ## Notes
 

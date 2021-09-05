@@ -1,4 +1,5 @@
 *.ts
 *.mp4
 *.m4a
-*fc2chat.json
+*.json
+__pycache__/
