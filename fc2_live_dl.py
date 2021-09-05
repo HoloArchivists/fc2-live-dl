@@ -5,6 +5,7 @@ import http.cookies
 import argparse
 import asyncio
 import aiohttp
+import pathlib
 import base64
 import signal
 import time
@@ -14,7 +15,7 @@ import os
 
 ABOUT = {
     'name': 'fc2-live-dl',
-    'version': '1.1.1',
+    'version': '1.1.2',
     'date': '2021-09-05',
     'description': 'Download fc2 livestreams',
     'author': 'hizkifw',
@@ -455,13 +456,11 @@ class FC2LiveDL():
             self._logger.info('Fetching stream info')
             meta = await live.get_meta()
 
-            fname_info = self._format_outtmpl(meta, { 'ext': 'info.json' })
-            fname_thumb = self._format_outtmpl(meta, { 'ext': 'png' })
-            fname_stream = self._format_outtmpl(meta, { 'ext': 'ts' })
-            fname_chat = self._format_outtmpl(meta, { 'ext': 'fc2chat.json' })
-            fname_muxed = self._format_outtmpl(meta, {
-                'ext': 'm4a' if self.params['quality'] == 'sound' else 'mp4'
-            })
+            fname_info = self._prepare_file(meta, 'info.json')
+            fname_thumb = self._prepare_file(meta, 'png')
+            fname_stream = self._prepare_file(meta, 'ts')
+            fname_chat = self._prepare_file(meta, 'fc2chat.json')
+            fname_muxed = self._prepare_file(meta, 'm4a' if self.params['quality'] == 'sound' else 'mp4')
 
             if self.params['write_info_json']:
                 self._logger.info('Writing info json to', fname_info)
@@ -625,6 +624,21 @@ class FC2LiveDL():
         latency = dict_search(self.STREAM_LATENCY, mode % 10)
         quality = dict_search(self.STREAM_QUALITY, mode // 10 * 10)
         return quality, latency
+
+    def _prepare_file(self, meta=None, ext=''):
+        def get_unique_name(meta, ext):
+            n = 0
+            while True:
+                extn = ext if n == 0 else '{}.{}'.format(n, ext)
+                fname = self._format_outtmpl(meta, { 'ext': extn })
+                n += 1
+                if not os.path.exists(fname):
+                    return fname
+
+        fname = get_unique_name(meta, ext)
+        fpath = pathlib.Path(fname)
+        fpath.parent.mkdir(parents=True, exist_ok=True)
+        return fname
 
     def _format_outtmpl(self, meta=None, overrides={}):
         def sanitize_filename(fname):
