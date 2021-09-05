@@ -106,7 +106,7 @@ Create a file called `autofc2.json` following the example below, and place the f
 }
 ```
 
-The `default_params` object will be the parameters applied to all of the channels. Check the usage section above for more information on each parameter. You can also override the parameters per-channel. For organizational purposes, you can also write comments as arbitrary parameters. I'm using `_name` in the example above, but you can use anything as long as it doesn't conflict with the parameters.
+The `default_params` object will be the parameters applied to all of the channels. Check the usage section above for more information on each parameter. Note that `wait_for_live` needs to be set to `true` for the script to work properly. You can also override the parameters per-channel. For organizational purposes, you can also write comments as arbitrary parameters. I'm using `_name` in the example above, but you can use anything as long as it doesn't conflict with the parameters.
 
 Once configured, you can run the script:
 
