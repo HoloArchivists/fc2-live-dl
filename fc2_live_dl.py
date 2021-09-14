@@ -15,8 +15,8 @@ import os
 
 ABOUT = {
     'name': 'fc2-live-dl',
-    'version': '1.1.2',
-    'date': '2021-09-05',
+    'version': '1.1.3',
+    'date': '2021-09-14',
     'description': 'Download fc2 livestreams',
     'author': 'hizkifw',
     'license': 'MIT',
@@ -256,7 +256,7 @@ class FC2LiveStream():
                 await asyncio.sleep(1)
 
     async def is_online(self, *, refetch=True):
-        meta = await self.get_meta(refetch)
+        meta = await self.get_meta(refetch=refetch)
         return meta['channel_data']['is_publish'] > 0
 
     async def get_websocket_url(self):
@@ -296,8 +296,8 @@ class FC2LiveStream():
 
             return '%(url)s?control_token=%(control_token)s' % info
 
-    async def get_meta(self, force_refetch=False):
-        if self._meta is not None and not force_refetch:
+    async def get_meta(self, *, refetch=False):
+        if self._meta is not None and not refetch:
             return self._meta
 
         url = 'https://live.fc2.com/api/memberApi.php'
@@ -450,11 +450,19 @@ class FC2LiveDL():
 
     async def download(self, channel_id):
         tasks = []
+        fname_stream = None
         try:
             live = FC2LiveStream(self._session, channel_id)
 
             self._logger.info('Fetching stream info')
-            meta = await live.get_meta()
+
+            is_online = await live.is_online()
+            if not is_online:
+                if not self.params['wait_for_live']:
+                    raise FC2LiveStream.NotOnlineException()
+                await live.wait_for_online(self.params['wait_poll_interval'])
+
+            meta = await live.get_meta(refetch=False)
 
             fname_info = self._prepare_file(meta, 'info.json')
             fname_thumb = self._prepare_file(meta, 'png')
@@ -474,12 +482,6 @@ class FC2LiveDL():
                     with open(fname_thumb, 'wb') as f:
                         async for data in resp.content.iter_chunked(1024):
                             f.write(data)
-
-            is_online = await live.is_online(refetch=False)
-            if not is_online:
-                if not self.params['wait_for_live']:
-                    raise FC2LiveStream.NotOnlineException()
-                await live.wait_for_online(self.params['wait_poll_interval'])
 
             ws_url = await live.get_websocket_url()
             self._logger.info('Found websocket url')
@@ -524,7 +526,7 @@ class FC2LiveDL():
                 if not task.done():
                     task.cancel()
 
-        if self.params['remux'] and os.path.isfile(fname_stream):
+        if fname_stream is not None and self.params['remux'] and os.path.isfile(fname_stream):
             self._logger.info('Remuxing stream to', fname_muxed)
             await self._remux_stream(fname_stream, fname_muxed)
             self._logger.debug('Finished remuxing stream', fname_muxed)

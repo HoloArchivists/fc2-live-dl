@@ -9,8 +9,12 @@ def get_config():
     try:
         with open('autofc2.json', 'r') as f:
             last_valid_config = json.load(f)
-    except:
-        print("Warning: unable to load config, using last valid one")
+    except Exception as ex:
+        if last_valid_config is None:
+            print("Error reading config file")
+            raise ex
+        else:
+            print("Warning: unable to load config, using last valid one")
     return last_valid_config
 
 def get_channels():
@@ -45,19 +49,27 @@ async def main():
     print("[autofc2]")
 
     tasks = {}
-    while True:
-        reload_channels_list(tasks)
-        task_arr = [
-            asyncio.create_task(asyncio.sleep(1))
-        ]
-        for channel in tasks.keys():
-            if tasks[channel].done():
-                tasks[channel] = asyncio.create_task(
-                        handle_channel(channel)
-                )
-            task_arr.append(tasks[channel])
+    sleep_task = None
+    try:
+        while True:
+            reload_channels_list(tasks)
+            sleep_task = asyncio.create_task(asyncio.sleep(1))
+            task_arr = [ sleep_task ]
+            for channel in tasks.keys():
+                if tasks[channel].done():
+                    tasks[channel] = asyncio.create_task(
+                            handle_channel(channel)
+                    )
+                task_arr.append(tasks[channel])
 
-        await asyncio.wait(task_arr, return_when=asyncio.FIRST_COMPLETED)
+            await asyncio.wait(task_arr, return_when=asyncio.FIRST_COMPLETED)
+    except asyncio.CancelledError:
+        print("Interrupted")
+    finally:
+        if sleep_task is not None:
+            sleep_task.cancel()
+        for task in tasks.values():
+            task.cancel()
 
 if __name__ == '__main__':
     # Set up asyncio loop
