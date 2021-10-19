@@ -25,10 +25,10 @@ python3 fc2_live_dl.py https://live.fc2.com/<...>
 ```
 usage: fc2_live_dl.py [-h] [-v]
                       [--quality {150Kbps,400Kbps,1.2Mbps,2Mbps,3Mbps,sound}]
-                      [--latency {low,high,mid}] [-o OUTPUT] [--no-remux] [-k]
-                      [--cookies COOKIES] [--write-chat] [--write-info-json]
-                      [--write-thumbnail] [--wait]
-                      [--poll-interval POLL_INTERVAL]
+                      [--latency {low,high,mid}] [--threads THREADS]
+                      [-o OUTPUT] [--no-remux] [-k] [--cookies COOKIES]
+                      [--write-chat] [--write-info-json] [--write-thumbnail]
+                      [--wait] [--poll-interval POLL_INTERVAL]
                       [--log-level {silent,error,warn,info,debug,trace}]
                       url
 
@@ -43,6 +43,8 @@ optional arguments:
   --latency {low,high,mid}
                         Stream latency. Select a higher latency if
                         experiencing stability issues. Default is mid.
+  --threads THREADS     The size of the thread pool used to download segments.
+                        Default is 1.
   -o OUTPUT, --output OUTPUT
                         Set the output filename format. Supports formatting
                         options similar to youtube-dl. Default is '%(date)s
@@ -83,6 +85,7 @@ Create a file called `autofc2.json` following the example below, and place the f
   "default_params": {
     "quality": "3Mbps",
     "latency": "mid",
+    "threads": 4,
     "outtmpl": "%(channel_name)s/%(date)s %(title)s.%(ext)s",
     "write_chat": false,
     "write_info_json": false,

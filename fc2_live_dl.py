@@ -412,6 +412,7 @@ class FC2LiveDL():
     params = {
         'quality': '3Mbps',
         'latency': 'mid',
+        'threads': 1,
         'outtmpl': '%(date)s %(title)s (%(channel_name)s).%(ext)s',
         'write_chat': False,
         'write_info_json': False,
@@ -550,6 +551,9 @@ class FC2LiveDL():
             return f"{num:.1f}Yi{suffix}"
 
         sess = Streamlink()
+        sess.set_option('stream-segment-threads', self.params['threads'])
+        self._logger.debug('Using', self.params['threads'], 'threads for streamlink')
+
         strm = sess.streams(hls_url.replace('https://', 'hls://'))['best']
         downloaded = 0
         with open(fname, 'wb') as out, strm.open() as inp:
@@ -745,6 +749,12 @@ async def main(args):
         help='Stream latency. Select a higher latency if experiencing stability issues. Default is {}.'.format(FC2LiveDL.params['latency'])
     )
     parser.add_argument(
+        '--threads',
+        type=int,
+        default=1,
+        help='The size of the thread pool used to download segments. Default is 1.',
+    )
+    parser.add_argument(
         '-o', '--output',
         default=FC2LiveDL.params['outtmpl'],
         help='''A|Set the output filename format. Supports formatting options similar to youtube-dl. Default is '{}'
@@ -813,6 +823,7 @@ Available format options:
     params = {
         'quality': args.quality,
         'latency': args.latency,
+        'threads': args.threads,
         'outtmpl': args.output,
         'write_chat': args.write_chat,
         'write_info_json': args.write_info_json,
