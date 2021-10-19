@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 from datetime import datetime
+from streamlink import Streamlink
 import http.cookies
 import argparse
 import asyncio
@@ -541,14 +542,24 @@ class FC2LiveDL():
         self._logger.info('Done')
 
     async def _download_stream(self, hls_url, fname):
-        rec_flags = [
-            '-y', '-hide_banner', '-loglevel', 'fatal', '-stats',
-            '-i', hls_url, '-c', 'copy', fname
-        ]
-        async with FFMpeg(rec_flags) as rec:
-            self._logger.info('Starting download', inline=True)
-            while await rec.print_status():
-                pass
+        def sizeof_fmt(num, suffix="B"):
+            for unit in ["", "Ki", "Mi", "Gi", "Ti", "Pi", "Ei", "Zi"]:
+                if abs(num) < 1024.0:
+                    return f"{num:3.1f}{unit}{suffix}"
+                num /= 1024.0
+            return f"{num:.1f}Yi{suffix}"
+
+        sess = Streamlink()
+        strm = sess.streams(hls_url.replace('https://', 'hls://'))['best']
+        downloaded = 0
+        with open(fname, 'wb') as out, strm.open() as inp:
+            while True:
+                buf = inp.read(1024)
+                if buf == b'':
+                    break
+                out.write(buf)
+                downloaded += len(buf)
+                self._logger.info('Downloading...', sizeof_fmt(downloaded), inline=True)
 
     async def _remux_stream(self, ifname, ofname):
         mux_flags = [

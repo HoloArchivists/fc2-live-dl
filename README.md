@@ -6,7 +6,7 @@
 
 - python 3.8
 - ffmpeg
-- aiohttp (`pip install -r requirements.txt`)
+- streamlink, aiohttp (`pip install -r requirements.txt`)
 
 ## Features
 
