@@ -3,6 +3,7 @@
 from datetime import datetime
 from streamlink import Streamlink
 import http.cookies
+import threading
 import argparse
 import asyncio
 import aiohttp
@@ -551,23 +552,35 @@ class FC2LiveDL():
                 num /= 1024.0
             return f"{num:.1f}Yi{suffix}"
 
-        def run_streamlink():
+        def run_streamlink(should_stop):
             sess = Streamlink()
             sess.set_option('stream-segment-threads', self.params['threads'])
             self._logger.debug('Using', self.params['threads'], 'threads for streamlink')
 
             strm = sess.streams(hls_url.replace('https://', 'hls://'))['best']
+            inp = strm.open()
             downloaded = 0
-            with open(fname, 'wb') as out, strm.open() as inp:
+            self._logger.debug('Opening file', fname, 'for writing')
+            with open(fname, 'wb') as out:
                 while True:
                     buf = inp.read(1024)
-                    if buf == b'':
+                    if buf == b'' or should_stop.is_set():
+                        self._logger.debug('Reached end of stream')
+                        inp.close()
                         break
                     out.write(buf)
                     downloaded += len(buf)
                     self._logger.info('Downloading...', sizeof_fmt(downloaded), inline=True)
 
-        await self._loop.run_in_executor(None, run_streamlink)
+        should_stop = threading.Event()
+        task = self._loop.run_in_executor(None, run_streamlink, should_stop)
+        try:
+            await task
+        except asyncio.CancelledError:
+            should_stop.set()
+            await task
+        except Exception as ex:
+            self._logger.error(ex)
 
     async def _remux_stream(self, ifname, ofname):
         mux_flags = [
