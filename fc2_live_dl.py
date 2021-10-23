@@ -443,6 +443,7 @@ class FC2LiveDL():
 
     async def __aenter__(self):
         self._session = aiohttp.ClientSession(cookie_jar=self._cookie_jar)
+        self._loop = asyncio.get_running_loop()
         return self
 
     async def __aexit__(self, *err):
@@ -550,20 +551,23 @@ class FC2LiveDL():
                 num /= 1024.0
             return f"{num:.1f}Yi{suffix}"
 
-        sess = Streamlink()
-        sess.set_option('stream-segment-threads', self.params['threads'])
-        self._logger.debug('Using', self.params['threads'], 'threads for streamlink')
+        def run_streamlink():
+            sess = Streamlink()
+            sess.set_option('stream-segment-threads', self.params['threads'])
+            self._logger.debug('Using', self.params['threads'], 'threads for streamlink')
 
-        strm = sess.streams(hls_url.replace('https://', 'hls://'))['best']
-        downloaded = 0
-        with open(fname, 'wb') as out, strm.open() as inp:
-            while True:
-                buf = inp.read(1024)
-                if buf == b'':
-                    break
-                out.write(buf)
-                downloaded += len(buf)
-                self._logger.info('Downloading...', sizeof_fmt(downloaded), inline=True)
+            strm = sess.streams(hls_url.replace('https://', 'hls://'))['best']
+            downloaded = 0
+            with open(fname, 'wb') as out, strm.open() as inp:
+                while True:
+                    buf = inp.read(1024)
+                    if buf == b'':
+                        break
+                    out.write(buf)
+                    downloaded += len(buf)
+                    self._logger.info('Downloading...', sizeof_fmt(downloaded), inline=True)
+
+        await self._loop.run_in_executor(None, run_streamlink)
 
     async def _remux_stream(self, ifname, ofname):
         mux_flags = [
