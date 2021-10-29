@@ -16,7 +16,7 @@ import os
 
 ABOUT = {
     'name': 'fc2-live-dl',
-    'version': '1.1.4',
+    'version': '1.1.5',
     'date': '2021-10-29',
     'description': 'Download fc2 livestreams',
     'author': 'hizkifw',
@@ -122,24 +122,28 @@ class HLSDownloader():
         last_fragment = None
         frag_idx = 0
         while True:
-            frags = await self._get_fragment_urls()
-
-            new_idx = 0
             try:
-                new_idx = 1 + frags.index(last_fragment)
-            except:
-                pass
+                frags = await self._get_fragment_urls()
 
-            n_new = len(frags) - new_idx
-            if n_new > 0:
-                self._logger.debug('Found', n_new, 'new fragments')
+                new_idx = 0
+                try:
+                    new_idx = 1 + frags.index(last_fragment)
+                except:
+                    pass
 
-            for frag in frags[new_idx:]:
-                last_fragment = frag
-                await self._frag_urls.put((frag_idx, (frag, 0)))
-                frag_idx += 1
+                n_new = len(frags) - new_idx
+                if n_new > 0:
+                    self._logger.debug('Found', n_new, 'new fragments')
 
-            await asyncio.sleep(1)
+                for frag in frags[new_idx:]:
+                    last_fragment = frag
+                    await self._frag_urls.put((frag_idx, (frag, 0)))
+                    frag_idx += 1
+
+                await asyncio.sleep(1)
+            except Exception as ex:
+                self._logger.error(ex)
+                return
 
     async def _download_worker(self):
         while True:
