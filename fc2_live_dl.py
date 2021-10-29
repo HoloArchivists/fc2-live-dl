@@ -136,19 +136,29 @@ class HLSDownloader():
 
             for frag in frags[new_idx:]:
                 last_fragment = frag
-                await self._frag_urls.put((frag_idx, frag))
+                await self._frag_urls.put((frag_idx, (frag, 0)))
                 frag_idx += 1
+
+            await asyncio.sleep(1)
 
     async def _download_worker(self):
         while True:
-            i, url = await self._frag_urls.get()
+            i, (url, tries) = await self._frag_urls.get()
             self._logger.debug('Downloading fragment', i)
-            async with self._session.get(url) as resp:
-                if resp.status == 403:
-                    self._logger.debug('Fragment', i, 'errored: 403')
-                    await self._frag_data.put((i, b''))
-                else:
-                    await self._frag_data.put((i, await resp.read()))
+            try:
+                async with self._session.get(url) as resp:
+                    if resp.status > 299:
+                        self._logger.error('Fragment', i, 'errored:', resp.status)
+                        if tries < 5:
+                            self._logger.debug('Retrying fragment', i)
+                            await self._frag_urls.put((i, (url, tries + 1)))
+                        else:
+                            self._logger.error('Gave up on fragment', i, 'after', tries, 'tries')
+                            await self._frag_data.put((i, b''))
+                    else:
+                        await self._frag_data.put((i, await resp.read()))
+            except Exception as ex:
+                self._logger.error(ex)
 
     async def _download(self):
         self._logger.info('Downloading with', self._threads, 'threads')
