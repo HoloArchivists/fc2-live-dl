@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 
 from datetime import datetime
-from streamlink import Streamlink
 import http.cookies
 import threading
 import argparse
@@ -90,6 +89,100 @@ class AsyncMap():
                 await self._cond.wait()
                 if key in self._map:
                     return self._map.pop(key)
+
+class HLSDownloader():
+    def __init__(self, session, url, threads):
+        self._session = session
+        self._url = url
+        self._threads = threads
+        self._logger = Logger('hls')
+        self._frag_urls = asyncio.PriorityQueue(100)
+        self._frag_data = asyncio.PriorityQueue(100)
+        self._download_task = None
+
+    async def __aenter__(self):
+        self._loop = asyncio.get_running_loop()
+        self._logger.debug('init')
+        return self
+
+    async def __aexit__(self, *err):
+        self._logger.trace('exit', err)
+        if self._download_task is not None:
+            self._download_task.cancel()
+            await self._download_task
+
+    async def _get_fragment_urls(self):
+        async with self._session.get(self._url) as resp:
+            if resp.status == 403:
+                raise self.StreamFinished()
+            playlist = await resp.text()
+            return [line.strip() for line in playlist.split('\n') if len(line) > 0 and not line[0] == '#']
+
+    async def _fill_queue(self):
+        last_fragment = None
+        frag_idx = 0
+        while True:
+            frags = await self._get_fragment_urls()
+
+            new_idx = 0
+            try:
+                new_idx = 1 + frags.index(last_fragment)
+            except:
+                pass
+
+            n_new = len(frags) - new_idx
+            if n_new > 0:
+                self._logger.debug('Found', n_new, 'new fragments')
+
+            for frag in frags[new_idx:]:
+                last_fragment = frag
+                await self._frag_urls.put((frag_idx, frag))
+                frag_idx += 1
+
+    async def _download_worker(self):
+        while True:
+            i, url = await self._frag_urls.get()
+            self._logger.debug('Downloading fragment', i)
+            async with self._session.get(url) as resp:
+                if resp.status == 403:
+                    self._logger.debug('Fragment', i, 'errored: 403')
+                    await self._frag_data.put((i, b''))
+                else:
+                    await self._frag_data.put((i, await resp.read()))
+
+    async def _download(self):
+        self._logger.info('Downloading with', self._threads, 'threads')
+        tasks = [
+            asyncio.create_task(self._download_worker())
+            for _ in range(self._threads)
+        ]
+        tasks.append(asyncio.create_task(self._fill_queue()))
+        await asyncio.gather(*tasks)
+
+    async def _read(self, index):
+        while True:
+            p, frag = await self._frag_data.get()
+            if p == index:
+                return frag
+            await self._frag_data.put((p, frag))
+            await asyncio.sleep(0.1)
+
+    async def read(self):
+        try:
+            if self._download_task is None:
+                self._download_task = asyncio.create_task(self._download())
+
+            index = 0
+            while True:
+                yield await self._read(index)
+                index += 1
+        except asyncio.CancelledError:
+            if self._download_task is not None:
+                self._download_task.cancel()
+                await self._download_task
+
+    class StreamFinished(Exception):
+        pass
 
 class FC2WebSocket():
     heartbeat_interval = 30
@@ -516,19 +609,22 @@ class FC2LiveDL():
 
                 while len(_pending) > 0:
                     pending_task = _pending.pop()
-                    self._logger.trace('Cancelling pending task', pending_task)
+                    self._logger.debug('Cancelling pending task', pending_task)
                     pending_task.cancel()
 
                 exited = _exited.pop()
-                self._logger.trace('Exited task was', exited)
+                self._logger.debug('Exited task was', exited)
                 if exited.exception() is not None:
                     raise exited.exception()
         except asyncio.CancelledError:
             self._logger.error('Interrupted by user')
         finally:
+            self._logger.debug('Cancelling tasks')
             for task in tasks:
                 if not task.done():
+                    self._logger.debug('Cancelling', task)
                     task.cancel()
+                    await task
 
         if fname_stream is not None and self.params['remux'] and os.path.isfile(fname_stream):
             self._logger.info('Remuxing stream to', fname_muxed)
@@ -552,33 +648,18 @@ class FC2LiveDL():
                 num /= 1024.0
             return f"{num:.1f}Yi{suffix}"
 
-        def run_streamlink(should_stop):
-            sess = Streamlink()
-            sess.set_option('stream-segment-threads', self.params['threads'])
-            self._logger.debug('Using', self.params['threads'], 'threads for streamlink')
-
-            strm = sess.streams(hls_url.replace('https://', 'hls://'))['best']
-            inp = strm.open()
-            downloaded = 0
-            self._logger.debug('Opening file', fname, 'for writing')
-            with open(fname, 'wb') as out:
-                while True:
-                    buf = inp.read(1024)
-                    if buf == b'' or should_stop.is_set():
-                        self._logger.debug('Reached end of stream')
-                        inp.close()
-                        break
-                    out.write(buf)
-                    downloaded += len(buf)
-                    self._logger.info('Downloading...', sizeof_fmt(downloaded), inline=True)
-
-        should_stop = threading.Event()
-        task = self._loop.run_in_executor(None, run_streamlink, should_stop)
         try:
-            await task
+            async with HLSDownloader(self._session, hls_url, self.params['threads']) as hls:
+                with open(fname, 'wb') as out:
+                    n_frags = 0
+                    total_size = 0
+                    async for frag in hls.read():
+                        n_frags += 1
+                        total_size += len(frag)
+                        out.write(frag)
+                        self._logger.info('Downloaded', n_frags, 'fragments,', sizeof_fmt(total_size), inline=True)
         except asyncio.CancelledError:
-            should_stop.set()
-            await task
+            self._logger.debug('_download_stream cancelled')
         except Exception as ex:
             self._logger.error(ex)
 
@@ -870,6 +951,7 @@ Available format options:
     async with FC2LiveDL(params) as fc2:
         try:
             await fc2.download(channel_id)
+            logger.debug('Done')
         except Exception as ex:
             logger.error(repr(ex), str(ex))
 
@@ -881,6 +963,8 @@ if __name__ == '__main__':
         loop.run_until_complete(task)
     except KeyboardInterrupt:
         task.cancel()
+        while not task.done() and not loop.is_closed():
+            loop.run_until_complete(task)
     finally:
         # Give some time for aiohttp cleanup
         loop.run_until_complete(asyncio.sleep(0.250))

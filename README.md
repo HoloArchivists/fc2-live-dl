@@ -6,7 +6,7 @@
 
 - python 3.8
 - ffmpeg
-- streamlink, aiohttp (`pip install -r requirements.txt`)
+- aiohttp (`pip install -r requirements.txt`)
 
 ## Features
 
@@ -123,3 +123,8 @@ If you need to change the config json, feel free to change it while the script i
 
 - FC2 does not allow multiple connections to the same stream, so you can't watch in the browser while downloading. You can instead preview the file being downloaded using `mpv` or `vlc`. Alternatively, log in with an account on your browser.
 - Recording only starts from when you start the tool. This tool cannot "seek back" and record streams from the start.
+
+## Known issues
+
+- Tested to work under Linux. It should work on Windows, but no guarantees. If you're facing any issues on Windows, try running it under WSL.
+- autofc2 will freak out over a private/paid streams.
