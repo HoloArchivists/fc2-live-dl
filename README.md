@@ -26,7 +26,7 @@ python3 fc2_live_dl.py https://live.fc2.com/<...>
 usage: fc2_live_dl.py [-h] [-v]
                       [--quality {150Kbps,400Kbps,1.2Mbps,2Mbps,3Mbps,sound}]
                       [--latency {low,high,mid}] [--threads THREADS]
-                      [-o OUTPUT] [--no-remux] [-k] [--cookies COOKIES]
+                      [-o OUTPUT] [--no-remux] [-k] [-x] [--cookies COOKIES]
                       [--write-chat] [--write-info-json] [--write-thumbnail]
                       [--wait] [--poll-interval POLL_INTERVAL]
                       [--log-level {silent,error,warn,info,debug,trace}]
@@ -61,6 +61,7 @@ optional arguments:
                         finished.
   -k, --keep-intermediates
                         Keep the raw .ts recordings after it has been remuxed.
+  -x, --extract-audio   Generate an audio-only copy of the stream.
   --cookies COOKIES     Path to a cookies file.
   --write-chat          Save live chat into a json file.
   --write-info-json     Dump output stream information into a json file.
@@ -94,7 +95,8 @@ Create a file called `autofc2.json` following the example below, and place the f
     "wait_poll_interval": 5,
     "cookies_file": null,
     "remux": true,
-    "keep_intermediates": false
+    "keep_intermediates": false,
+    "extract_audio": true
   },
   "channels": {
     "91544481": {
@@ -110,6 +112,8 @@ Create a file called `autofc2.json` following the example below, and place the f
 ```
 
 The `default_params` object will be the parameters applied to all of the channels. Check the usage section above for more information on each parameter. Note that `wait_for_live` needs to be set to `true` for the script to work properly. You can also override the parameters per-channel. For organizational purposes, you can also write comments as arbitrary parameters. I'm using `_name` in the example above, but you can use anything as long as it doesn't conflict with the parameters.
+
+**NOTE Windows users**: When specifying a file path (e.g. for cookies) in the json, double up your backslashes, for example: `"cookies": "C:\\Documents\\cookies.txt"`.
 
 Once configured, you can run the script:
 
@@ -128,3 +132,4 @@ If you need to change the config json, feel free to change it while the script i
 
 - Tested to work under Linux. It should work on Windows, but no guarantees. If you're facing any issues on Windows, try running it under WSL.
 - autofc2 will freak out over a private/paid streams.
+- `--wait` doesn't work sometimes because FC2 would announce that the stream is live before the playlist is available. Use `autofc2` if you want to make sure streams get saved.

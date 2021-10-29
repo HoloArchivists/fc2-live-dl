@@ -516,6 +516,7 @@ class FC2LiveDL():
         'cookies_file': None,
         'remux': True,
         'keep_intermediates': False,
+        'extract_audio': False,
     }
 
     _session = None
@@ -566,6 +567,7 @@ class FC2LiveDL():
             fname_stream = self._prepare_file(meta, 'ts')
             fname_chat = self._prepare_file(meta, 'fc2chat.json')
             fname_muxed = self._prepare_file(meta, 'm4a' if self.params['quality'] == 'sound' else 'mp4')
+            fname_audio = self._prepare_file(meta, 'm4a')
 
             if self.params['write_info_json']:
                 self._logger.info('Writing info json to', fname_info)
@@ -630,6 +632,12 @@ class FC2LiveDL():
             self._logger.info('Remuxing stream to', fname_muxed)
             await self._remux_stream(fname_stream, fname_muxed)
             self._logger.debug('Finished remuxing stream', fname_muxed)
+
+            if self.params['extract_audio']:
+                self._logger.info('Extracting audio to', fname_audio)
+                await self._remux_stream(fname_stream, fname_audio, extra_flags=['-vn'])
+                self._logger.debug('Finished remuxing stream', fname_muxed)
+
             if not self.params['keep_intermediates'] and os.path.isfile(fname_muxed):
                 self._logger.info('Removing intermediate files')
                 os.remove(fname_stream)
@@ -663,10 +671,10 @@ class FC2LiveDL():
         except Exception as ex:
             self._logger.error(ex)
 
-    async def _remux_stream(self, ifname, ofname):
+    async def _remux_stream(self, ifname, ofname, *, extra_flags=[]):
         mux_flags = [
             '-y', '-hide_banner', '-loglevel', 'fatal', '-stats',
-            '-i', ifname, '-c', 'copy', '-movflags', 'faststart', ofname
+            '-i', ifname, *extra_flags, '-c', 'copy', '-movflags', 'faststart', ofname
         ]
         async with FFMpeg(mux_flags) as mux:
             self._logger.info('Remuxing stream', inline=True)
@@ -876,6 +884,11 @@ Available format options:
         action='store_true',
         help='Keep the raw .ts recordings after it has been remuxed.'
     )
+    parser.add_argument(
+        '-x', '--extract-audio',
+        action='store_true',
+        help='Generate an audio-only copy of the stream.'
+    )
 
     parser.add_argument(
         '--cookies',
@@ -931,6 +944,7 @@ Available format options:
         'cookies_file': args.cookies,
         'remux': not args.no_remux,
         'keep_intermediates': args.keep_intermediates,
+        'extract_audio': args.extract_audio,
     }
 
     logger = Logger('main')
