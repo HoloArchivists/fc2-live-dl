@@ -16,8 +16,8 @@ import os
 
 ABOUT = {
     'name': 'fc2-live-dl',
-    'version': '1.1.3',
-    'date': '2021-09-14',
+    'version': '1.1.4',
+    'date': '2021-10-29',
     'description': 'Download fc2 livestreams',
     'author': 'hizkifw',
     'license': 'MIT',
