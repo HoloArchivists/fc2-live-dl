@@ -119,6 +119,7 @@ class HLSDownloader():
             return [line.strip() for line in playlist.split('\n') if len(line) > 0 and not line[0] == '#']
 
     async def _fill_queue(self):
+        last_fragment_timestamp = time.time()
         last_fragment = None
         frag_idx = 0
         while True:
@@ -133,6 +134,7 @@ class HLSDownloader():
 
                 n_new = len(frags) - new_idx
                 if n_new > 0:
+                    last_fragment_timestamp = time.time()
                     self._logger.debug('Found', n_new, 'new fragments')
 
                 for frag in frags[new_idx:]:
@@ -140,38 +142,59 @@ class HLSDownloader():
                     await self._frag_urls.put((frag_idx, (frag, 0)))
                     frag_idx += 1
 
+                if time.time() - last_fragment_timestamp > 30:
+                    self._logger.debug('Timeout receiving new segments')
+                    return
+
                 await asyncio.sleep(1)
             except Exception as ex:
-                self._logger.error(ex)
+                self._logger.error('Error fetching new segments:', ex)
                 return
 
-    async def _download_worker(self):
+    async def _download_worker(self, wid):
+        last_frag_timestamp = time.time()
         while True:
             i, (url, tries) = await self._frag_urls.get()
-            self._logger.debug('Downloading fragment', i)
+            self._logger.debug(wid, 'Downloading fragment', i)
             try:
                 async with self._session.get(url) as resp:
                     if resp.status > 299:
-                        self._logger.error('Fragment', i, 'errored:', resp.status)
+                        self._logger.error(wid, 'Fragment', i, 'errored:', resp.status)
                         if tries < 5:
-                            self._logger.debug('Retrying fragment', i)
+                            self._logger.debug(wid, 'Retrying fragment', i)
                             await self._frag_urls.put((i, (url, tries + 1)))
                         else:
-                            self._logger.error('Gave up on fragment', i, 'after', tries, 'tries')
+                            self._logger.error(wid, 'Gave up on fragment', i, 'after', tries, 'tries')
                             await self._frag_data.put((i, b''))
                     else:
                         await self._frag_data.put((i, await resp.read()))
+                        last_frag_timestamp = time.time()
             except Exception as ex:
                 self._logger.error(ex)
 
+            if time.time() - last_frag_timestamp > 30:
+                self._logger.debug(wid, 'No new fragments to download')
+                return
+
     async def _download(self):
-        self._logger.info('Downloading with', self._threads, 'threads')
-        tasks = [
-            asyncio.create_task(self._download_worker())
-            for _ in range(self._threads)
-        ]
-        tasks.append(asyncio.create_task(self._fill_queue()))
-        await asyncio.gather(*tasks)
+        tasks = []
+        try:
+            self._logger.info('Downloading with', self._threads, 'threads')
+            tasks = [
+                asyncio.create_task(self._download_worker(i))
+                for i in range(self._threads)
+            ]
+
+            self._logger.debug('Starting queue worker')
+            await self._fill_queue()
+            self._logger.debug('Queue finished')
+
+            await asyncio.gather(*tasks)
+            self._logger.debug('Workers quit')
+        except asyncio.CancelledError:
+            self._logger.debug('_download cancelled')
+            for task in tasks:
+                task.cancel()
 
     async def _read(self, index):
         while True:
@@ -191,6 +214,7 @@ class HLSDownloader():
                 yield await self._read(index)
                 index += 1
         except asyncio.CancelledError:
+            self._logger.debug('read cancelled')
             if self._download_task is not None:
                 self._download_task.cancel()
                 await self._download_task
@@ -201,7 +225,7 @@ class HLSDownloader():
 class FC2WebSocket():
     heartbeat_interval = 30
 
-    def __init__(self, session, url):
+    def __init__(self, session, url, *, output_file=None):
         self._session = session
         self._url = url
         self._msg_id = 0
@@ -210,6 +234,16 @@ class FC2WebSocket():
         self._is_ready = False
         self._logger = Logger('ws')
         self.comments = asyncio.Queue()
+
+        self._output_file = None
+        if output_file is not None:
+            self._logger.info('Writing websocket to', output_file)
+            self._output_file = open(output_file, 'w')
+
+    def __del__(self):
+        if self._output_file is not None:
+            self._logger.debug('Closing file')
+            self._output_file.close()
 
     async def __aenter__(self):
         self._loop = asyncio.get_running_loop()
@@ -263,6 +297,11 @@ class FC2WebSocket():
         while True:
             msg = await asyncio.wait_for(self._ws.receive_json(), self.heartbeat_interval)
             self._logger.trace('<', json.dumps(msg)[:100])
+            if self._output_file is not None:
+                self._output_file.write('< ')
+                self._output_file.write(json.dumps(msg))
+                self._output_file.write('\n')
+
             if msg['name'] == 'connect_complete':
                 self._is_ready = True
             elif msg['name'] == '_response_':
@@ -317,12 +356,19 @@ class FC2WebSocket():
 
     async def _send_message(self, name, arguments={}):
         self._msg_id += 1
-        self._logger.trace('>', name, arguments)
-        await self._ws.send_json({
+        msg = {
             'name': name,
             'arguments': arguments,
             'id': self._msg_id
-        })
+        }
+
+        self._logger.trace('>', name, arguments)
+        if self._output_file is not None:
+            self._output_file.write('> ')
+            self._output_file.write(json.dumps(msg))
+            self._output_file.write('\n')
+
+        await self._ws.send_json(msg)
         return self._msg_id
 
     class ServerDisconnection(Exception):
@@ -531,6 +577,9 @@ class FC2LiveDL():
         'remux': True,
         'keep_intermediates': False,
         'extract_audio': False,
+
+        # Debug params
+        'dump_websocket': False,
     }
 
     _session = None
@@ -582,6 +631,7 @@ class FC2LiveDL():
             fname_chat = self._prepare_file(meta, 'fc2chat.json')
             fname_muxed = self._prepare_file(meta, 'm4a' if self.params['quality'] == 'sound' else 'mp4')
             fname_audio = self._prepare_file(meta, 'm4a')
+            fname_websocket = self._prepare_file(meta, 'ws') if self.params['dump_websocket'] else None
 
             if self.params['write_info_json']:
                 self._logger.info('Writing info json to', fname_info)
@@ -598,7 +648,7 @@ class FC2LiveDL():
 
             ws_url = await live.get_websocket_url()
             self._logger.info('Found websocket url')
-            async with FC2WebSocket(self._session, ws_url) as ws:
+            async with FC2WebSocket(self._session, ws_url, output_file=fname_websocket) as ws:
                 hls_info = await ws.get_hls_information()
                 hls_url = self._get_hls_url(hls_info)
                 self._logger.info('Received HLS info')
@@ -944,6 +994,13 @@ Available format options:
         help='Log level verbosity. Default is info.'
     )
 
+    # Debug flags
+    parser.add_argument(
+        '--dump-websocket',
+        action='store_true',
+        help='Dump all websocket communication to a file for debugging'
+    )
+
     # Init fc2-live-dl
     args = parser.parse_args(args[1:])
     Logger.loglevel = Logger.LOGLEVELS[args.log_level]
@@ -961,6 +1018,9 @@ Available format options:
         'remux': not args.no_remux,
         'keep_intermediates': args.keep_intermediates,
         'extract_audio': args.extract_audio,
+
+        # Debug params
+        'dump_websocket': args.dump_websocket,
     }
 
     logger = Logger('main')
