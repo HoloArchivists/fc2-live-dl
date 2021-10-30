@@ -634,6 +634,8 @@ class FC2LiveDL():
                     raise exited.exception()
         except asyncio.CancelledError:
             self._logger.error('Interrupted by user')
+        except FC2WebSocket.ServerDisconnection as ex:
+            self._logger.error('Disconnected:', ex)
         finally:
             self._logger.debug('Cancelling tasks')
             for task in tasks:
