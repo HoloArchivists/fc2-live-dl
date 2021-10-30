@@ -30,6 +30,7 @@ usage: fc2_live_dl.py [-h] [-v]
                       [--write-chat] [--write-info-json] [--write-thumbnail]
                       [--wait] [--poll-interval POLL_INTERVAL]
                       [--log-level {silent,error,warn,info,debug,trace}]
+                      [--dump-websocket]
                       url
 
 positional arguments:
@@ -73,6 +74,8 @@ optional arguments:
                         live. Default is 5.
   --log-level {silent,error,warn,info,debug,trace}
                         Log level verbosity. Default is info.
+  --dump-websocket      Dump all websocket communication to a file for
+                        debugging
 ```
 
 ## autofc2
