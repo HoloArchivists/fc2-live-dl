@@ -16,8 +16,8 @@ import os
 
 ABOUT = {
     'name': 'fc2-live-dl',
-    'version': '1.1.5',
-    'date': '2021-10-29',
+    'version': '1.2.0',
+    'date': '2021-10-31',
     'description': 'Download fc2 livestreams',
     'author': 'hizkifw',
     'license': 'MIT',
@@ -114,7 +114,9 @@ class HLSDownloader():
     async def _get_fragment_urls(self):
         async with self._session.get(self._url) as resp:
             if resp.status == 403:
-                raise self.StreamFinished()
+                raise FC2WebSocket.StreamEnded()
+            elif resp.status == 404:
+                return []
             playlist = await resp.text()
             return [line.strip() for line in playlist.split('\n') if len(line) > 0 and not line[0] == '#']
 
@@ -152,23 +154,26 @@ class HLSDownloader():
                 return
 
     async def _download_worker(self, wid):
-        while True:
-            i, (url, tries) = await self._frag_urls.get()
-            self._logger.debug(wid, 'Downloading fragment', i)
-            try:
-                async with self._session.get(url) as resp:
-                    if resp.status > 299:
-                        self._logger.error(wid, 'Fragment', i, 'errored:', resp.status)
-                        if tries < 5:
-                            self._logger.debug(wid, 'Retrying fragment', i)
-                            await self._frag_urls.put((i, (url, tries + 1)))
+        try:
+            while True:
+                i, (url, tries) = await self._frag_urls.get()
+                self._logger.debug(wid, 'Downloading fragment', i)
+                try:
+                    async with self._session.get(url) as resp:
+                        if resp.status > 299:
+                            self._logger.error(wid, 'Fragment', i, 'errored:', resp.status)
+                            if tries < 5:
+                                self._logger.debug(wid, 'Retrying fragment', i)
+                                await self._frag_urls.put((i, (url, tries + 1)))
+                            else:
+                                self._logger.error(wid, 'Gave up on fragment', i, 'after', tries, 'tries')
+                                await self._frag_data.put((i, b''))
                         else:
-                            self._logger.error(wid, 'Gave up on fragment', i, 'after', tries, 'tries')
-                            await self._frag_data.put((i, b''))
-                    else:
-                        await self._frag_data.put((i, await resp.read()))
-            except Exception as ex:
-                self._logger.error(ex)
+                            await self._frag_data.put((i, await resp.read()))
+                except Exception as ex:
+                    self._logger.error(wid, 'Unhandled exception:', ex)
+        except asyncio.CancelledError:
+            self._logger.debug('worker', wid, 'cancelled')
 
     async def _download(self):
         tasks = []
@@ -187,11 +192,13 @@ class HLSDownloader():
 
             for task in tasks:
                 task.cancel()
+                await task
             self._logger.debug('Workers quit')
         except asyncio.CancelledError:
             self._logger.debug('_download cancelled')
             for task in tasks:
                 task.cancel()
+                await task
 
     async def _read(self, index):
         while True:
@@ -215,9 +222,6 @@ class HLSDownloader():
             if self._download_task is not None:
                 self._download_task.cancel()
                 await self._download_task
-
-    class StreamFinished(Exception):
-        pass
 
 class FC2WebSocket():
     heartbeat_interval = 30
@@ -313,6 +317,8 @@ class FC2WebSocket():
                     raise self.MultipleConnectionError()
                 else:
                     raise self.ServerDisconnection(code)
+            elif msg['name'] == 'publish_stop':
+                raise self.StreamEnded()
             elif msg['name'] == 'comment':
                 for comment in msg['arguments']['comments']:
                     await self.comments.put(comment)
@@ -388,6 +394,10 @@ class FC2WebSocket():
     class MultipleConnectionError(ServerDisconnection):
         '''Raised when the server detects multiple connections to the same live stream'''
         code = 4512
+
+    class StreamEnded(Exception):
+        def __str__(self):
+            return 'Stream has ended'
 
     class EmptyPlaylistException(Exception):
         '''Raised when the server did not return a valid playlist'''
@@ -683,6 +693,8 @@ class FC2LiveDL():
             self._logger.error('Interrupted by user')
         except FC2WebSocket.ServerDisconnection as ex:
             self._logger.error('Disconnected:', ex)
+        except FC2WebSocket.StreamEnded:
+            self._logger.info('Stream ended')
         finally:
             self._logger.debug('Cancelling tasks')
             for task in tasks:
