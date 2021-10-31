@@ -152,7 +152,6 @@ class HLSDownloader():
                 return
 
     async def _download_worker(self, wid):
-        last_frag_timestamp = time.time()
         while True:
             i, (url, tries) = await self._frag_urls.get()
             self._logger.debug(wid, 'Downloading fragment', i)
@@ -168,18 +167,15 @@ class HLSDownloader():
                             await self._frag_data.put((i, b''))
                     else:
                         await self._frag_data.put((i, await resp.read()))
-                        last_frag_timestamp = time.time()
             except Exception as ex:
                 self._logger.error(ex)
-
-            if time.time() - last_frag_timestamp > 30:
-                self._logger.debug(wid, 'No new fragments to download')
-                return
 
     async def _download(self):
         tasks = []
         try:
-            self._logger.info('Downloading with', self._threads, 'threads')
+            if self._threads > 1:
+                self._logger.info('Downloading with', self._threads, 'threads')
+
             tasks = [
                 asyncio.create_task(self._download_worker(i))
                 for i in range(self._threads)
@@ -189,7 +185,8 @@ class HLSDownloader():
             await self._fill_queue()
             self._logger.debug('Queue finished')
 
-            await asyncio.gather(*tasks)
+            for task in tasks:
+                task.cancel()
             self._logger.debug('Workers quit')
         except asyncio.CancelledError:
             self._logger.debug('_download cancelled')
