@@ -1,7 +1,10 @@
-from fc2_live_dl import FC2LiveDL
+from fc2_live_dl import FC2LiveDL, Logger
 import asyncio
 import copy
 import json
+
+Logger.print_inline = False
+logger = Logger('autofc2')
 
 last_valid_config = None
 def get_config():
@@ -11,10 +14,10 @@ def get_config():
             last_valid_config = json.load(f)
     except Exception as ex:
         if last_valid_config is None:
-            print("Error reading config file")
+            logger.error("Error reading config file")
             raise ex
         else:
-            print("Warning: unable to load config, using last valid one")
+            logger.warn("Warning: unable to load config, using last valid one")
     return last_valid_config
 
 def get_channels():
@@ -46,7 +49,7 @@ async def handle_channel(channel_id):
         await fc2.download(channel_id)
 
 async def main():
-    print("[autofc2]")
+    logger.info('starting')
 
     tasks = {}
     sleep_task = None
@@ -64,7 +67,7 @@ async def main():
 
             await asyncio.wait(task_arr, return_when=asyncio.FIRST_COMPLETED)
     except asyncio.CancelledError:
-        print("Interrupted")
+        logger.error("Interrupted")
     finally:
         if sleep_task is not None:
             sleep_task.cancel()

@@ -90,7 +90,7 @@ Create a file called `autofc2.json` following the example below, and place the f
     "quality": "3Mbps",
     "latency": "mid",
     "threads": 4,
-    "outtmpl": "%(channel_name)s/%(date)s %(title)s.%(ext)s",
+    "outtmpl": "%(channel_name)s %(_en_name)s/%(date)s %(title)s.%(ext)s",
     "write_chat": false,
     "write_info_json": false,
     "write_thumbnail": false,
@@ -103,18 +103,20 @@ Create a file called `autofc2.json` following the example below, and place the f
   },
   "channels": {
     "91544481": {
-      "_name": "猫羽かりん",
+      "_en_name": "Necoma Karin",
       "quality": "sound",
       "write_thumbnail": true
     },
-    "72364867": { "_name": "兎野さくら" },
-    "40740626": { "_name": "狛江撫子" },
-    "81840800": { "_name": "狼ノ宮ヒナギク" }
+    "72364867": { "_en_name": "Uno Sakura" },
+    "40740626": { "_en_name": "Komae Nadeshiko" },
+    "81840800": { "_en_name": "Ronomiya Hinagiku" }
   }
 }
 ```
 
-The `default_params` object will be the parameters applied to all of the channels. Check the usage section above for more information on each parameter. Note that `wait_for_live` needs to be set to `true` for the script to work properly. You can also override the parameters per-channel. For organizational purposes, you can also write comments as arbitrary parameters. I'm using `_name` in the example above, but you can use anything as long as it doesn't conflict with the parameters.
+The `default_params` object will be the parameters applied to all of the channels. Check the usage section above for more information on each parameter. Note that `wait_for_live` needs to be set to `true` for the script to work properly. You can also override the parameters per-channel.
+
+Arbitrary parameters can be specified by prefixing them with `_`, and will be accessible in `outtmpl`. This is useful for specifying custom filenames just like in the example above. In the example I'm using `_en_name`, but you can use anything as long as it starts with `_`.
 
 **NOTE Windows users**: When specifying a file path (e.g. for cookies) in the json, double up your backslashes, for example: `"cookies_file": "C:\\Documents\\cookies.txt"`.
 
@@ -136,3 +138,4 @@ If you need to change the config json, feel free to change it while the script i
 - Tested to work under Linux. It should work on Windows, but no guarantees. If you're facing any issues on Windows, try running it under WSL.
 - autofc2 will freak out over a private/paid streams.
 - `--wait` doesn't work sometimes because FC2 would announce that the stream is live before the playlist is available. Use `autofc2` if you want to make sure streams get saved.
+- When monitoring many channels with `autofc2`, if you face any 5xx errors, try increasing the `wait_poll_interval` to something higher.

@@ -16,8 +16,8 @@ import os
 
 ABOUT = {
     'name': 'fc2-live-dl',
-    'version': '1.2.0',
-    'date': '2021-10-31',
+    'version': '1.2.1',
+    'date': '2021-11-10',
     'description': 'Download fc2 livestreams',
     'author': 'hizkifw',
     'license': 'MIT',
@@ -35,6 +35,7 @@ class Logger():
     }
 
     loglevel = LOGLEVELS['info']
+    print_inline = True
 
     def __init__(self, module):
         self._module = module
@@ -66,6 +67,9 @@ class Logger():
         return chars[self._loadspin_n]
 
     def _print(self, prefix, *args, inline=False, spin=False):
+        if inline and not self.print_inline:
+            return
+
         args = list(args)
         args.append('\033[0m')
         if spin:
@@ -858,6 +862,10 @@ class FC2LiveDL():
             finfo['channel_id'] = sanitize_filename(meta['channel_data']['channelid'])
             finfo['channel_name'] = sanitize_filename(meta['profile_data']['name'])
             finfo['title'] = sanitize_filename(meta['channel_data']['title'])
+
+        for key in self.params:
+            if key.startswith('_'):
+                finfo[key] = self.params[key]
 
         finfo.update(overrides)
 
