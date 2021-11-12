@@ -20,14 +20,17 @@ def get_config():
             logger.warn("Warning: unable to load config, using last valid one")
     return last_valid_config
 
+def clone(obj):
+    return json.loads(json.dumps(obj))
+
 def get_channels():
     config = get_config()
     return config['channels'].keys()
 
 def get_channel_params(channel_id):
     config = get_config()
-    params = config['default_params']
-    params.update(config['channels'][channel_id])
+    params = clone(config['default_params'])
+    params.update(clone(config['channels'][channel_id]))
     return params
 
 def reload_channels_list(tasks):
