@@ -572,9 +572,7 @@ class FC2LiveDL():
         'high': 1,
         'mid': 2,
     }
-
-    # Default params
-    params = {
+    DEFAULT_PARAMS = {
         'quality': '3Mbps',
         'latency': 'mid',
         'threads': 1,
@@ -593,11 +591,13 @@ class FC2LiveDL():
         'dump_websocket': False,
     }
 
-    _session = None
-    _background_tasks = []
 
     def __init__(self, params={}):
         self._logger = Logger('fc2')
+        self._session = None
+        self._background_tasks = []
+
+        self.params = json.loads(json.dumps(self.DEFAULT_PARAMS))
         self.params.update(params)
         # Validate outtmpl
         self._format_outtmpl()
@@ -928,14 +928,14 @@ async def main(args):
     parser.add_argument(
         '--quality',
         choices=FC2LiveDL.STREAM_QUALITY.keys(),
-        default=FC2LiveDL.params['quality'],
-        help='Quality of the stream to download. Default is {}.'.format(FC2LiveDL.params['quality'])
+        default=FC2LiveDL.DEFAULT_PARAMS['quality'],
+        help='Quality of the stream to download. Default is {}.'.format(FC2LiveDL.DEFAULT_PARAMS['quality'])
     )
     parser.add_argument(
         '--latency',
         choices=FC2LiveDL.STREAM_LATENCY.keys(),
-        default=FC2LiveDL.params['latency'],
-        help='Stream latency. Select a higher latency if experiencing stability issues. Default is {}.'.format(FC2LiveDL.params['latency'])
+        default=FC2LiveDL.DEFAULT_PARAMS['latency'],
+        help='Stream latency. Select a higher latency if experiencing stability issues. Default is {}.'.format(FC2LiveDL.DEFAULT_PARAMS['latency'])
     )
     parser.add_argument(
         '--threads',
@@ -945,7 +945,7 @@ async def main(args):
     )
     parser.add_argument(
         '-o', '--output',
-        default=FC2LiveDL.params['outtmpl'],
+        default=FC2LiveDL.DEFAULT_PARAMS['outtmpl'],
         help='''A|Set the output filename format. Supports formatting options similar to youtube-dl. Default is '{}'
 
 Available format options:
@@ -954,7 +954,7 @@ Available format options:
     date (string): local date YYYY-MM-DD
     time (string): local time HHMMSS
     ext (string): file extension
-    title (string): title of the live broadcast'''.format(FC2LiveDL.params['outtmpl'].replace('%', '%%'))
+    title (string): title of the live broadcast'''.format(FC2LiveDL.DEFAULT_PARAMS['outtmpl'].replace('%', '%%'))
     )
 
     parser.add_argument(
@@ -1001,8 +1001,8 @@ Available format options:
     parser.add_argument(
         '--poll-interval',
         type=float,
-        default=FC2LiveDL.params['wait_poll_interval'],
-        help='How many seconds between checks to see if broadcast is live. Default is {}.'.format(FC2LiveDL.params['wait_poll_interval'])
+        default=FC2LiveDL.DEFAULT_PARAMS['wait_poll_interval'],
+        help='How many seconds between checks to see if broadcast is live. Default is {}.'.format(FC2LiveDL.DEFAULT_PARAMS['wait_poll_interval'])
     )
     parser.add_argument(
         '--log-level',
