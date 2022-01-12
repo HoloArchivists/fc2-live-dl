@@ -4,13 +4,15 @@ import copy
 import json
 
 Logger.print_inline = False
-logger = Logger('autofc2')
+logger = Logger("autofc2")
 
 last_valid_config = None
+
+
 def get_config():
     global last_valid_config
     try:
-        with open('autofc2.json', 'r') as f:
+        with open("autofc2.json", "r") as f:
             last_valid_config = json.load(f)
     except Exception as ex:
         if last_valid_config is None:
@@ -20,18 +22,22 @@ def get_config():
             logger.warn("Warning: unable to load config, using last valid one")
     return last_valid_config
 
+
 def clone(obj):
     return json.loads(json.dumps(obj))
 
+
 def get_channels():
     config = get_config()
-    return config['channels'].keys()
+    return config["channels"].keys()
+
 
 def get_channel_params(channel_id):
     config = get_config()
-    params = clone(config['default_params'])
-    params.update(clone(config['channels'][channel_id]))
+    params = clone(config["default_params"])
+    params.update(clone(config["channels"][channel_id]))
     return params
+
 
 def reload_channels_list(tasks):
     async def noop():
@@ -46,13 +52,15 @@ def reload_channels_list(tasks):
         if channel_id not in channels:
             tasks[channel_id].cancel()
 
+
 async def handle_channel(channel_id):
     params = get_channel_params(channel_id)
     async with FC2LiveDL(params) as fc2:
         await fc2.download(channel_id)
 
+
 async def main():
-    logger.info('starting')
+    logger.info("starting")
 
     tasks = {}
     sleep_task = None
@@ -60,12 +68,10 @@ async def main():
         while True:
             reload_channels_list(tasks)
             sleep_task = asyncio.create_task(asyncio.sleep(1))
-            task_arr = [ sleep_task ]
+            task_arr = [sleep_task]
             for channel in tasks.keys():
                 if tasks[channel].done():
-                    tasks[channel] = asyncio.create_task(
-                            handle_channel(channel)
-                    )
+                    tasks[channel] = asyncio.create_task(handle_channel(channel))
                 task_arr.append(tasks[channel])
 
             await asyncio.wait(task_arr, return_when=asyncio.FIRST_COMPLETED)
@@ -77,15 +83,9 @@ async def main():
         for task in tasks.values():
             task.cancel()
 
-if __name__ == '__main__':
-    # Set up asyncio loop
-    loop = asyncio.get_event_loop()
-    task = asyncio.ensure_future(main())
+
+if __name__ == "__main__":
     try:
-        loop.run_until_complete(task)
+        asyncio.run(main())
     except KeyboardInterrupt:
-        task.cancel()
-    finally:
-        # Give some time for aiohttp cleanup
-        loop.run_until_complete(asyncio.sleep(0.250))
-        loop.close()
+        pass
