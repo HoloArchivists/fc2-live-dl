@@ -16,8 +16,8 @@ import os
 
 ABOUT = {
     "name": "fc2-live-dl",
-    "version": "1.2.1",
-    "date": "2021-11-10",
+    "version": "1.2.2",
+    "date": "2022-01-12",
     "description": "Download fc2 livestreams",
     "author": "hizkifw",
     "license": "MIT",
@@ -201,6 +201,9 @@ class HLSDownloader:
             if self._threads > 1:
                 self._logger.info("Downloading with", self._threads, "threads")
 
+            if self._threads > 8:
+                self._logger.warn("Using more than 8 threads is not recommended")
+
             tasks = [
                 asyncio.create_task(self._download_worker(i))
                 for i in range(self._threads)
@@ -360,6 +363,9 @@ class FC2WebSocket:
 
     async def _send_message_and_wait(self, name, arguments={}, *, timeout=0):
         msg_id = await self._send_message(name, arguments)
+        if msg_id is None:
+            return None
+
         msg_wait_task = asyncio.create_task(self._msg_responses.pop(msg_id))
         tasks = [msg_wait_task, self._task]
 
@@ -385,7 +391,11 @@ class FC2WebSocket:
             self._output_file.write(json.dumps(msg))
             self._output_file.write("\n")
 
-        await self._ws.send_json(msg)
+        try:
+            await self._ws.send_json(msg)
+        except asyncio.TimeoutError as e:
+            self._logger.debug("_send_message: send_json timeout", e)
+            return None
         return self._msg_id
 
     class ServerDisconnection(Exception):
@@ -1115,16 +1125,7 @@ Available format options:
 
 
 if __name__ == "__main__":
-    # Set up asyncio loop
-    loop = asyncio.get_event_loop()
-    task = asyncio.ensure_future(main(sys.argv))
     try:
-        loop.run_until_complete(task)
+        asyncio.run(main(sys.argv))
     except KeyboardInterrupt:
-        task.cancel()
-        while not task.done() and not loop.is_closed():
-            loop.run_until_complete(task)
-    finally:
-        # Give some time for aiohttp cleanup
-        loop.run_until_complete(asyncio.sleep(0.250))
-        loop.close()
+        pass

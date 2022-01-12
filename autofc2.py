@@ -85,14 +85,7 @@ async def main():
 
 
 if __name__ == "__main__":
-    # Set up asyncio loop
-    loop = asyncio.get_event_loop()
-    task = asyncio.ensure_future(main())
     try:
-        loop.run_until_complete(task)
+        asyncio.run(main())
     except KeyboardInterrupt:
-        task.cancel()
-    finally:
-        # Give some time for aiohttp cleanup
-        loop.run_until_complete(asyncio.sleep(0.250))
-        loop.close()
+        pass
