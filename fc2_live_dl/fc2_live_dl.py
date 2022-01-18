@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+from importlib.metadata import version
 from datetime import datetime
 import http.cookies
 import threading
@@ -14,9 +15,14 @@ import json
 import sys
 import os
 
+try:
+    __version__ = version(__name__)
+except:
+    __version__ = "unknown"
+
 ABOUT = {
     "name": "fc2-live-dl",
-    "version": "1.2.2",
+    "version": __version__,
     "date": "2022-01-12",
     "description": "Download fc2 livestreams",
     "author": "hizkifw",
