@@ -4,3 +4,7 @@
 *.m4a
 *.json
 __pycache__/
+dist/
+build/
+*.egg-info
+.install-cache/
