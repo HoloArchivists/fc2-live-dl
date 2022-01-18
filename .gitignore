@@ -5,4 +5,6 @@
 *.json
 __pycache__/
 dist/
+build/
 *.egg-info
+.install-cache/
