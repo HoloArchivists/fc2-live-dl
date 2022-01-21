@@ -160,27 +160,32 @@ class FC2WebSocket:
     class ServerDisconnection(Exception):
         """Raised when the server sends a `control_disconnection` message"""
 
-        def __init__(self, code=None):
-            if code is not None:
-                self.code = code
+        def __init__(self, code=None, reason=None):
+            self.code = code
+            self.reason = reason
 
         def __str__(self):
-            return "Server disconnected with code {}".format(self.code)
+            if self.reason is not None:
+                return "Server disconnected: {} ({})".format(self.code, self.reason)
+            return "Server disconnected: {}".format(self.code)
 
     class PaidProgramDisconnection(ServerDisconnection):
         """Raised when the streamer switches the broadcast to a paid program"""
 
-        code = 4101
+        def __init__(self):
+            super().__init__(code=4101, reason="Paid program")
 
     class LoginRequiredError(ServerDisconnection):
         """Raised when the stream requires a login"""
 
-        code = 4507
+        def __init__(self):
+            super().__init__(code=4507, reason="Login required")
 
     class MultipleConnectionError(ServerDisconnection):
         """Raised when the server detects multiple connections to the same live stream"""
 
-        code = 4512
+        def __init__(self):
+            super().__init__(code=4512, reason="Multiple connections")
 
     class StreamEnded(Exception):
         def __str__(self):

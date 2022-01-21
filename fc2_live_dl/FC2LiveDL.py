@@ -8,7 +8,7 @@ import pathlib
 import json
 import os
 
-from .util import Logger
+from .util import Logger, sanitize_filename
 from .ffmpeg import FFMpeg
 from .fc2 import FC2LiveStream, FC2WebSocket
 from .hls import HLSDownloader
@@ -76,6 +76,7 @@ class FC2LiveDL:
         self._session = None
 
     async def download(self, channel_id):
+        self._logger = Logger("fc2 " + channel_id)
         tasks = []
         fname_stream = None
         try:
@@ -158,7 +159,7 @@ class FC2LiveDL:
         except asyncio.CancelledError:
             self._logger.error("Interrupted by user")
         except FC2WebSocket.ServerDisconnection as ex:
-            self._logger.error("Disconnected:", ex)
+            self._logger.error(ex)
         except FC2WebSocket.StreamEnded:
             self._logger.info("Stream ended")
         finally:
@@ -322,12 +323,6 @@ class FC2LiveDL:
         return fname
 
     def _format_outtmpl(self, meta=None, overrides={}):
-        def sanitize_filename(fname):
-            fname = str(fname)
-            for c in '<>:"/\\|?*':
-                fname = fname.replace(c, "_")
-            return fname
-
         finfo = {
             "channel_id": "",
             "channel_name": "",

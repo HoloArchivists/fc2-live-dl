@@ -1,3 +1,4 @@
+import re
 import asyncio
 import argparse
 
@@ -97,3 +98,34 @@ class SmartFormatter(argparse.HelpFormatter):
                 ]
             )
         return argparse.HelpFormatter._split_lines(self, text, width)
+
+
+def sanitize_filename(fname):
+    # https://stackoverflow.com/a/31976060
+    fname = str(fname)
+
+    # replace windows and linux forbidden characters
+    fname = re.sub(r"[\\/:*?\"<>|]+", "_", fname)
+
+    # remove ascii control characters
+    fname = re.sub(r"[\x00-\x1f\x7f]", "", fname)
+
+    # remove leading and trailing whitespace
+    fname = fname.strip()
+
+    # remove leading and trailing dots
+    fname = fname.strip(".")
+
+    # check windows reserved names
+    badnames = """
+        CON PRN AUX NUL
+        COM1 COM2 COM3 COM4 COM5 COM6 COM7 COM8 COM9
+        LPT1 LPT2 LPT3 LPT4 LPT5 LPT6 LPT7 LPT8 LPT9
+    """.split()
+
+    fup = fname.upper()
+    for badname in badnames:
+        if fup == badname or fup.startswith(badname + "."):
+            fname = "_" + fname
+
+    return fname
