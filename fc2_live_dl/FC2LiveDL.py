@@ -260,14 +260,33 @@ class FC2LiveDL:
         playlist = self._get_playlist_or_best(p_sorted, mode)
         return playlist["url"]
 
-    def _get_playlist_or_best(self, sorted_playlists, mode=None):
+    def _get_playlist_or_best(self, sorted_playlists, mode):
         playlist = None
+
+        if len(sorted_playlists) == 0:
+            raise FC2WebSocket.EmptyPlaylistException()
+
+        # Find the playlist with matching (quality, latency) mode
         for p in sorted_playlists:
             if p["mode"] == mode:
                 playlist = p
 
+        # If no playlist matches, ignore the quality and find the best
+        # one matching the latency
+        if playlist is None:
+            for p in sorted_playlists:
+                _, p_latency = self._format_mode(p["mode"])
+                _, r_latency = self._format_mode(mode)
+                if p_latency == r_latency:
+                    playlist = p
+                    break
+
+        # If no playlist matches, return the first one
         if playlist is None:
             playlist = sorted_playlists[0]
+
+        # Log a warning if the requested mode is not available
+        if playlist["mode"] != mode:
             self._logger.warn(
                 "Requested quality", self._format_mode(mode), "is not available"
             )
