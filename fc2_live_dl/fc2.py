@@ -2,6 +2,7 @@ import asyncio
 import base64
 import json
 import time
+import html
 from .util import Logger, AsyncMap
 
 
@@ -265,6 +266,12 @@ class FC2LiveStream:
             # Content type is specified so aiohttp knows what to expect
             data = await resp.json(content_type="text/javascript")
             self._logger.trace("<get_meta", data)
+
+            # FC2 html-encodes data.channel_data.title
+            data["data"]["channel_data"]["title"] = html.unescape(
+                data["data"]["channel_data"]["title"]
+            )
+
             self._meta = data["data"]
             return data["data"]
 
