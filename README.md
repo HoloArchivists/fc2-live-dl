@@ -2,6 +2,8 @@
 
 > Tool to download FC2 live streams
 
+[![PyPI](https://img.shields.io/pypi/v/fc2-live-dl)](https://pypi.org/project/fc2-live-dl/ 'PyPI')
+
 ## Requirements
 
 - Python 3.8
