@@ -1,4 +1,5 @@
 import re
+import sys
 import asyncio
 import argparse
 
@@ -15,18 +16,30 @@ class Logger:
 
     loglevel = LOGLEVELS["info"]
     print_inline = True
+    print_colors = True
+
+    ansi_purple = "\033[35m"
+    ansi_cyan = "\033[36m"
+    ansi_yellow = "\033[33m"
+    ansi_red = "\033[31m"
+    ansi_reset = "\033[0m"
+    ansi_delete_line = "\033[K"
 
     def __init__(self, module):
         self._module = module
         self._loadspin_n = 0
 
+        if not sys.stdout.isatty():
+            self.print_inline = False
+            self.print_colors = False
+
     def trace(self, *args, **kwargs):
         if self.loglevel >= self.LOGLEVELS["trace"]:
-            self._print("\033[35m", *args, **kwargs)
+            self._print(self.ansi_purple, *args, **kwargs)
 
     def debug(self, *args, **kwargs):
         if self.loglevel >= self.LOGLEVELS["debug"]:
-            self._print("\033[36m", *args, **kwargs)
+            self._print(self.ansi_cyan, *args, **kwargs)
 
     def info(self, *args, **kwargs):
         if self.loglevel >= self.LOGLEVELS["info"]:
@@ -34,27 +47,35 @@ class Logger:
 
     def warn(self, *args, **kwargs):
         if self.loglevel >= self.LOGLEVELS["warn"]:
-            self._print("\033[33m", *args, **kwargs)
+            self._print(self.ansi_yellow, *args, **kwargs)
 
     def error(self, *args, **kwargs):
         if self.loglevel >= self.LOGLEVELS["error"]:
-            self._print("\033[31m", *args, **kwargs)
+            self._print(self.ansi_red, *args, **kwargs)
 
     def _spin(self):
         chars = "⡆⠇⠋⠙⠸⢰⣠⣄"
         self._loadspin_n = (self._loadspin_n + 1) % len(chars)
         return chars[self._loadspin_n]
 
-    def _print(self, prefix, *args, inline=False, spin=False):
+    def _print(self, color, *args, inline=False, spin=False):
         if inline and not self.print_inline:
             return
 
         args = list(args)
-        args.append("\033[0m")
+
+        if self.print_colors:
+            args.append(self.ansi_reset)
+        else:
+            color = ""
+
         if spin:
             args.insert(0, self._spin())
-        end = "\033[K\r" if inline else "\033[K\n"
-        print("{}[{}]".format(prefix, self._module), *args, end=end, flush=True)
+
+        end = self.ansi_delete_line if self.print_inline else ""
+        end = end + ("\r" if inline else "\n")
+
+        print("{}[{}]".format(color, self._module), *args, end=end, flush=True)
 
 
 class AsyncMap:
