@@ -20,8 +20,16 @@
 
 ## Installation
 
+To install the latest stable version:
+
 ```
-pip install fc2-live-dl
+pip install --upgrade fc2-live-dl
+```
+
+To install the latest development version:
+
+```
+pip install --upgrade git+https://github.com/hizkifw/fc2-live-dl.git#egg=fc2-live-dl
 ```
 
 ## Usage
@@ -38,7 +46,7 @@ usage: fc2-live-dl [-h] [-v]
                    [--write-info-json] [--write-thumbnail] [--wait]
                    [--poll-interval POLL_INTERVAL]
                    [--log-level {silent,error,warn,info,debug,trace}]
-                   [--dump-websocket]
+                   [--trust-env-proxy] [--dump-websocket]
                    url
 
 positional arguments:
@@ -50,8 +58,8 @@ options:
   --quality {150Kbps,400Kbps,1.2Mbps,2Mbps,3Mbps,sound}
                         Quality of the stream to download. Default is 3Mbps.
   --latency {low,high,mid}
-                        Stream latency. Select a higher latency if experiencing
-                        stability issues. Default is mid.
+                        Stream latency. Select a higher latency if
+                        experiencing stability issues. Default is mid.
   --threads THREADS     The size of the thread pool used to download segments.
                         Default is 1.
   -o OUTPUT, --output OUTPUT
@@ -82,9 +90,20 @@ options:
                         live. Default is 5.
   --log-level {silent,error,warn,info,debug,trace}
                         Log level verbosity. Default is info.
+  --trust-env-proxy     Trust environment variables for proxy settings.
   --dump-websocket      Dump all websocket communication to a file for
                         debugging
 ```
+
+### Using proxies
+
+To use a HTTP proxy, pass the `--trust-env-proxy` flag and set your proxy
+settings in the `HTTP_PROXY`, `HTTPS_PROXY`, `WS_PROXY` or `WSS_PROXY`
+environment variables. If not present, proxy settings are taken from the
+[`~/.netrc` file](https://www.gnu.org/software/inetutils/manual/html_node/The-_002enetrc-file.html).
+
+For more information, check
+[aiohttp's documentation](https://docs.aiohttp.org/en/stable/client_advanced.html#proxy-support).
 
 ## autofc2
 
@@ -168,7 +187,8 @@ recordings).
 ## Known issues
 
 - Tested to work under Linux. It should work on Windows, but no guarantees. If
-  you're facing any issues on Windows, try running it under WSL.
+  you're facing any issues on Windows, please
+  [file an issue](https://github.com/hizkifw/fc2-live-dl/issues/new).
 - autofc2 will freak out over a private/paid streams.
 - `--wait` doesn't work sometimes because FC2 would announce that the stream is
   live before the playlist is available. Use `autofc2` if you want to make sure

@@ -43,6 +43,7 @@ class FC2LiveDL:
         "remux": True,
         "keep_intermediates": False,
         "extract_audio": False,
+        "trust_env_proxy": False,
         # Debug params
         "dump_websocket": False,
     }
@@ -66,7 +67,10 @@ class FC2LiveDL:
             self._cookie_jar.update_cookies(cookies)
 
     async def __aenter__(self):
-        self._session = aiohttp.ClientSession(cookie_jar=self._cookie_jar)
+        self._session = aiohttp.ClientSession(
+            cookie_jar=self._cookie_jar,
+            trust_env=self.params["trust_env_proxy"],
+        )
         self._loop = asyncio.get_running_loop()
         return self
 

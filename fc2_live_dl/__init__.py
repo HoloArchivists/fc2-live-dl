@@ -118,6 +118,11 @@ Available format options:
         choices=Logger.LOGLEVELS.keys(),
         help="Log level verbosity. Default is info.",
     )
+    parser.add_argument(
+        "--trust-env-proxy",
+        action="store_true",
+        help="Trust environment variables for proxy settings.",
+    )
 
     # Debug flags
     parser.add_argument(
@@ -143,6 +148,7 @@ Available format options:
         "remux": not args.no_remux,
         "keep_intermediates": args.keep_intermediates,
         "extract_audio": args.extract_audio,
+        "trust_env_proxy": args.trust_env_proxy,
         # Debug params
         "dump_websocket": args.dump_websocket,
     }

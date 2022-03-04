@@ -7,6 +7,7 @@ release: clean
 	./scripts/release.sh
 
 publish: dist release
+	git push --follow-tags origin main
 	python -m twine upload dist/*
 
 clean: clean-build clean-pyc
