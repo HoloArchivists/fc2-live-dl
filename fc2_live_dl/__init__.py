@@ -19,7 +19,7 @@ ABOUT = {
     "description": "Download fc2 livestreams",
     "author": "hizkifw",
     "license": "MIT",
-    "url": "https://github.com/hizkifw/fc2-live-dl",
+    "url": "https://github.com/HoloArchivists/fc2-live-dl",
 }
 
 

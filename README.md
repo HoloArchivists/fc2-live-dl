@@ -29,7 +29,7 @@ pip install --upgrade fc2-live-dl
 To install the latest development version:
 
 ```
-pip install --upgrade git+https://github.com/hizkifw/fc2-live-dl.git#egg=fc2-live-dl
+pip install --upgrade git+https://github.com/HoloArchivists/fc2-live-dl.git#egg=fc2-live-dl
 ```
 
 ## Usage
@@ -188,7 +188,7 @@ recordings).
 
 - Tested to work under Linux. It should work on Windows, but no guarantees. If
   you're facing any issues on Windows, please
-  [file an issue](https://github.com/hizkifw/fc2-live-dl/issues/new).
+  [file an issue](https://github.com/HoloArchivists/fc2-live-dl/issues/new).
 - autofc2 will freak out over a private/paid streams.
 - `--wait` doesn't work sometimes because FC2 would announce that the stream is
   live before the playlist is available. Use `autofc2` if you want to make sure
