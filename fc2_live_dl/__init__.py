@@ -105,6 +105,14 @@ Available format options:
         help="Wait until the broadcast goes live, then start recording.",
     )
     parser.add_argument(
+        "--wait-for-quality-timeout",
+        type=float,
+        default=FC2LiveDL.DEFAULT_PARAMS["wait_for_quality_timeout"],
+        help="If the requested quality is not available, keep retrying up to this many seconds before falling back to the next best quality. Default is {} seconds.".format(
+            FC2LiveDL.DEFAULT_PARAMS["wait_for_quality_timeout"]
+        ),
+    )
+    parser.add_argument(
         "--poll-interval",
         type=float,
         default=FC2LiveDL.DEFAULT_PARAMS["wait_poll_interval"],
@@ -143,6 +151,7 @@ Available format options:
         "write_info_json": args.write_info_json,
         "write_thumbnail": args.write_thumbnail,
         "wait_for_live": args.wait,
+        "wait_for_quality_timeout": args.wait_for_quality_timeout,
         "wait_poll_interval": args.poll_interval,
         "cookies_file": args.cookies,
         "remux": not args.no_remux,

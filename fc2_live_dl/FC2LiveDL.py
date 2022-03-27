@@ -6,6 +6,7 @@ import asyncio
 import aiohttp
 import pathlib
 import json
+import time
 import os
 
 from .util import Logger, sanitize_filename
@@ -38,6 +39,7 @@ class FC2LiveDL:
         "write_info_json": False,
         "write_thumbnail": False,
         "wait_for_live": False,
+        "wait_for_quality_timeout": 15,
         "wait_poll_interval": 5,
         "cookies_file": None,
         "remux": True,
@@ -128,8 +130,37 @@ class FC2LiveDL:
             async with FC2WebSocket(
                 self._session, ws_url, output_file=fname_websocket
             ) as ws:
-                hls_info = await ws.get_hls_information()
-                hls_url = self._get_hls_url(hls_info)
+                started = time.time()
+                mode = self._get_mode()
+                got_mode = None
+                hls_url = None
+
+                # Wait for the selected quality to be available
+                while (
+                    time.time() - started < self.params["wait_for_quality_timeout"]
+                    and got_mode != mode
+                ):
+                    hls_info = await ws.get_hls_information()
+                    hls_url, got_mode = self._get_hls_url(hls_info, mode)
+
+                    # Log a warning if the requested mode is not available
+                    if got_mode != mode:
+                        self._logger.warn(
+                            "Requested quality",
+                            self._format_mode(mode),
+                            "is not available, waiting ({}/{}s)".format(
+                                round(time.time() - started),
+                                self.params["wait_for_quality_timeout"],
+                            ),
+                        )
+                        await asyncio.sleep(1)
+
+                if got_mode != mode:
+                    self._logger.warn(
+                        "Timeout reached, falling back to next best quality",
+                        self._format_mode(got_mode),
+                    )
+
                 self._logger.info("Received HLS info")
 
                 coros = []
@@ -257,12 +288,11 @@ class FC2LiveDL:
                 f.write(json.dumps(comment))
                 f.write("\n")
 
-    def _get_hls_url(self, hls_info):
-        mode = self._get_mode()
+    def _get_hls_url(self, hls_info, mode):
         p_merged = self._merge_playlists(hls_info)
         p_sorted = self._sort_playlists(p_merged)
         playlist = self._get_playlist_or_best(p_sorted, mode)
-        return playlist["url"]
+        return playlist["url"], playlist["mode"]
 
     def _get_playlist_or_best(self, sorted_playlists, mode):
         playlist = None
@@ -288,15 +318,6 @@ class FC2LiveDL:
         # If no playlist matches, return the first one
         if playlist is None:
             playlist = sorted_playlists[0]
-
-        # Log a warning if the requested mode is not available
-        if playlist["mode"] != mode:
-            self._logger.warn(
-                "Requested quality", self._format_mode(mode), "is not available"
-            )
-            self._logger.warn(
-                "falling back to next best quality", self._format_mode(playlist["mode"])
-            )
 
         return playlist
 
