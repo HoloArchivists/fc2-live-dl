@@ -44,6 +44,7 @@ usage: fc2-live-dl [-h] [-v]
                    [--latency {low,high,mid}] [--threads THREADS] [-o OUTPUT]
                    [--no-remux] [-k] [-x] [--cookies COOKIES] [--write-chat]
                    [--write-info-json] [--write-thumbnail] [--wait]
+                   [--wait-for-quality-timeout WAIT_FOR_QUALITY_TIMEOUT]
                    [--poll-interval POLL_INTERVAL]
                    [--log-level {silent,error,warn,info,debug,trace}]
                    [--trust-env-proxy] [--dump-websocket]
@@ -85,6 +86,10 @@ options:
   --write-thumbnail     Download thumbnail into a file
   --wait                Wait until the broadcast goes live, then start
                         recording.
+  --wait-for-quality-timeout WAIT_FOR_QUALITY_TIMEOUT
+                        If the requested quality is not available, keep
+                        retrying up to this many seconds before falling back
+                        to the next best quality. Default is 15 seconds.
   --poll-interval POLL_INTERVAL
                         How many seconds between checks to see if broadcast is
                         live. Default is 5.
@@ -93,6 +98,7 @@ options:
   --trust-env-proxy     Trust environment variables for proxy settings.
   --dump-websocket      Dump all websocket communication to a file for
                         debugging
+
 ```
 
 ### Using proxies
@@ -127,6 +133,7 @@ Where the `autofc2.json` file looks like this:
     "write_info_json": false,
     "write_thumbnail": false,
     "wait_for_live": true,
+    "wait_for_quality_timeout": 15,
     "wait_poll_interval": 5,
     "cookies_file": null,
     "remux": true,
