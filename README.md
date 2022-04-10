@@ -138,7 +138,8 @@ Where the `autofc2.json` file looks like this:
     "cookies_file": null,
     "remux": true,
     "keep_intermediates": false,
-    "extract_audio": true
+    "extract_audio": true,
+    "trust_env_proxy": false
   },
   "channels": {
     "91544481": {
