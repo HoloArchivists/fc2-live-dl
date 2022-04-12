@@ -124,6 +124,9 @@ Where the `autofc2.json` file looks like this:
 
 ```json
 {
+  "autofc2": {
+    "log_level": "info"
+  },
   "default_params": {
     "quality": "3Mbps",
     "latency": "mid",

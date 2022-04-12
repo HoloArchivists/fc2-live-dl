@@ -34,6 +34,7 @@ class AutoFC2:
                 raise ex
             else:
                 self.logger.warn("Warning: unable to load config, using last valid one")
+                self.logger.warn(ex)
         return self.last_valid_config
 
     def clone(self, obj):
@@ -62,6 +63,30 @@ class AutoFC2:
             if channel_id not in channels:
                 tasks[channel_id].cancel()
 
+    async def config_watcher(self):
+        last_log_level = Logger.loglevel
+
+        while True:
+            await asyncio.sleep(1)
+
+            config = self.get_config()
+
+            if "autofc2" not in config:
+                continue
+
+            log_level = config["autofc2"]["log_level"]
+            if log_level == last_log_level:
+                continue
+
+            last_log_level = log_level
+
+            if log_level not in Logger.LOGLEVELS:
+                self.logger.error(f"Invalid log level {log_level}")
+                continue
+
+            Logger.loglevel = Logger.LOGLEVELS[log_level]
+            self.logger.info(f"Setting log level to {log_level}")
+
     async def handle_channel(self, channel_id):
         params = self.get_channel_params(channel_id)
         async with FC2LiveDL(params) as fc2:
@@ -70,11 +95,12 @@ class AutoFC2:
     async def _main(self):
         tasks = {}
         sleep_task = None
+        config_task = asyncio.create_task(self.config_watcher())
         try:
             while True:
                 self.reload_channels_list(tasks)
                 sleep_task = asyncio.create_task(asyncio.sleep(1))
-                task_arr = [sleep_task]
+                task_arr = [config_task, sleep_task]
                 for channel in tasks.keys():
                     if tasks[channel].done():
                         tasks[channel] = asyncio.create_task(
