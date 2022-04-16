@@ -227,6 +227,9 @@ You can also use docker-compose to keep your config in a single file:
 - Run it!
 
   ```bash
+  # Prepare the recordings directory with the right permissions
+  mkdir ./recordings && chown 1000:1000 ./recordings
+
   # Run the thing
   docker-compose up -d
 
