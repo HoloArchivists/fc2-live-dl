@@ -1,0 +1,13 @@
+*.ws
+*.ts
+*.mp4
+*.m4a
+*.json
+__pycache__/
+dist/
+build/
+*.egg-info
+.install-cache/
+.vim/
+.github/
+Dockerfile

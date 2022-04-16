@@ -20,6 +20,8 @@
 
 ## Installation
 
+### Using pip
+
 To install the latest stable version:
 
 ```
@@ -30,6 +32,12 @@ To install the latest development version:
 
 ```
 pip install --upgrade git+https://github.com/HoloArchivists/fc2-live-dl.git#egg=fc2-live-dl
+```
+
+### Using docker
+
+```
+docker pull ghcr.io/holoarchivists/fc2-live-dl:latest
 ```
 
 ## Usage
@@ -183,6 +191,51 @@ parameters will not be updated for ongoing streams (i.e. if the script is
 recording a stream and you change its settings, it will continue recording with
 the old settings and will only apply the new configuration to future
 recordings).
+
+## Running autofc2 with Docker
+
+You can run autofc2 using the Docker image by mounting your config json and your
+output directory, as well as overriding the default `cmd` with `autofc2` like
+so:
+
+```bash
+# The following mounts `./autofc2.json` into the correct location in the docker
+# container, as well as an `/recordings` folder for the recordings. You'll need to
+# set the `outtmpl` to something like `/recordings/%(channel_name)s ...`
+docker run --rm \
+  -v $(pwd)/autofc2.json:/app/autofc2.json:ro \
+  -v $(pwd)/recordings:/recordings \
+  ghcr.io/holoarchivists/fc2-live-dl:latest \
+  autofc2 --config /app/autofc2.json
+```
+
+The above command runs the container in the foreground. If you want it to keep
+running in the background, you can replace the `--rm` flag with `-d`.
+
+You can also use docker-compose to keep your config in a single file:
+
+- Download the
+  [`docker-compose.autofc2.yml`](https://raw.githubusercontent.com/HoloArchivists/fc2-live-dl/main/docker-compose.autofc2.yml)
+  file into some folder, and name it `docker-compose.yml`.
+- Place your `autofc2.json` in the same folder and modify the `outtmpl` so it
+  starts with `/recordings/`:
+
+  ```
+  "outtmpl": "/recordings/%(channel_name)s %(_en_name)s/%(date)s %(title)s.%(ext)s"
+  ```
+
+- Run it!
+
+  ```bash
+  # Run the thing
+  docker-compose up -d
+
+  # Check the logs
+  docker-compose logs -f
+
+  # If you wanna kill it
+  docker-compose down
+  ```
 
 ## Notes
 
