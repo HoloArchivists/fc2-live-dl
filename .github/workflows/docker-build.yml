@@ -17,9 +17,13 @@ jobs:
         images: |
           ghcr.io/holoarchivists/fc2-live-dl
         tags: |
+          type=raw,value=latest,enable=${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
           type=ref,event=branch
           type=ref,event=pr
           type=sha
+          type=semver,pattern={{version}}
+          type=semver,pattern={{major}}.{{minor}}
+          type=semver,pattern={{major}}
 
     - name: Set up Docker Buildx
       uses: docker/setup-buildx-action@v1

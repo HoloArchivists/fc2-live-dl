@@ -1,0 +1,11 @@
+# Sample docker-compose.yml file for autofc2
+# Check the README for more information
+version: '3'
+services:
+  autofc2:
+    image: ghcr.io/holoarchivists/fc2-live-dl:latest
+    command: autofc2
+    volumes:
+    - ./autofc2.json:/app/autofc2.json:ro
+    - ./recordings:/recordings
+    restart: unless-stopped
