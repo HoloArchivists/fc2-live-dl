@@ -1,4 +1,4 @@
-.PHONY: clean clean-build clean-pyc release
+.PHONY: clean clean-build clean-pyc release docker
 
 tag_hash=$(shell git rev-parse --short HEAD)
 tag_version=$(shell grep 'version' setup.cfg | sed 's/version = //')
@@ -16,15 +16,14 @@ publish: dist release
 clean: clean-build clean-pyc
 
 clean-build:
-	rm -rf build
-	rm -rf dist
-	rm -rf *.egg-info
+	rm -rf build dist *.egg-info
 
 clean-pyc:
-	find . -name '*.pyc' -exec rm -f {} +
-	find . -name '*.pyo' -exec rm -f {} +
-	find . -name '*~' -exec rm -f {} +
-	find . -name '__pycache__' -exec rm -fr {} +
+	find . -name '*.pyc' \
+		-o -name '*.pyo' \
+		-o -name '*~' \
+		-o -name '__pycache__' \
+		-exec rm -fr {} +
 
 docker:
 	docker build \
