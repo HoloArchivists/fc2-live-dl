@@ -8,6 +8,7 @@ COPY --chown=1000:1000 setup.cfg pyproject.toml requirements.txt LICENSE ./
 COPY --chown=1000:1000 fc2_live_dl fc2_live_dl
 
 RUN set -eux; \
+    apk add --no-cache ffmpeg; \
     apk add --no-cache --virtual .build-deps \
         gcc g++ make libffi-dev; \
     su app -s /bin/sh -c 'pip install --no-cache --user .'; \
