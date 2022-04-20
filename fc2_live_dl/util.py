@@ -1,5 +1,6 @@
 import re
 import sys
+import time
 import asyncio
 import argparse
 
@@ -75,7 +76,14 @@ class Logger:
         end = self.ansi_delete_line if self.print_inline else ""
         end = end + ("\r" if inline else "\n")
 
-        print("{}[{}]".format(color, self._module), *args, end=end, flush=True)
+        timestamp = time.strftime("%FT%X%z")
+
+        print(
+            "{} {}[{}]".format(timestamp, color, self._module),
+            *args,
+            end=end,
+            flush=True
+        )
 
 
 class AsyncMap:
