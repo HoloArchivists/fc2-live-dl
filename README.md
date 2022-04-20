@@ -212,6 +212,10 @@ docker run --rm \
 The above command runs the container in the foreground. If you want it to keep
 running in the background, you can replace the `--rm` flag with `-d`.
 
+**⚠️ IMPORTANT NOTE**: Make sure you set your `outtmpl` properly to match the
+bind mounts (`-v`), and test that the files are properly saved to your computer.
+**You will lose your recordings** if you don't configure this properly!
+
 You can also use docker-compose to keep your config in a single file:
 
 - Download the
