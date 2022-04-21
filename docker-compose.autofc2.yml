@@ -9,3 +9,7 @@ services:
     - ./autofc2.json:/app/autofc2.json:ro
     - ./recordings:/recordings
     restart: unless-stopped
+    environment:
+    # Feel free to update this to your local timezone. This setting influences
+    # the timestamps on the program's logs.
+    - TZ=Asia/Tokyo

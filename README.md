@@ -205,12 +205,15 @@ so:
 docker run --rm \
   -v $(pwd)/autofc2.json:/app/autofc2.json:ro \
   -v $(pwd)/recordings:/recordings \
+  -e TZ=Asia/Tokyo \
   ghcr.io/holoarchivists/fc2-live-dl:latest \
   autofc2 --config /app/autofc2.json
 ```
 
 The above command runs the container in the foreground. If you want it to keep
-running in the background, you can replace the `--rm` flag with `-d`.
+running in the background, you can replace the `--rm` flag with `-d`. The `TZ`
+environment can be set to your local timezone, and will affect the timestamps in
+the logs.
 
 **⚠️ IMPORTANT NOTE**: Make sure you set your `outtmpl` properly to match the
 bind mounts (`-v`), and test that the files are properly saved to your computer.
