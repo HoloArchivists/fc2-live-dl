@@ -1,8 +1,8 @@
 import re
 import sys
-import time
 import asyncio
 import argparse
+from datetime import datetime
 
 
 class Logger:
@@ -76,7 +76,7 @@ class Logger:
         end = self.ansi_delete_line if self.print_inline else ""
         end = end + ("\r" if inline else "\n")
 
-        timestamp = time.strftime("%FT%X%z")
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
         print(
             "{} {}[{}]".format(timestamp, color, self._module),
