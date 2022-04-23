@@ -1,9 +1,10 @@
 import asyncio
 import base64
+import html
 import json
 import time
-import html
-from .util import Logger, AsyncMap
+
+from .util import AsyncMap, Logger
 
 
 class FC2WebSocket:
@@ -57,7 +58,7 @@ class FC2WebSocket:
         while msg is None and tries < max_tries:
             msg = await self._send_message_and_wait("get_hls_information", timeout=5)
 
-            backoff_delay = 2 ** tries
+            backoff_delay = 2**tries
             tries += 1
 
             if msg is None:

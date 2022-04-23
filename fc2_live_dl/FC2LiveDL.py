@@ -1,18 +1,19 @@
 #!/usr/bin/env python3
 
-from datetime import datetime
-import http.cookies
 import asyncio
-import aiohttp
-import pathlib
+import http.cookies
 import json
-import time
 import os
+import pathlib
+import time
+from datetime import datetime
 
-from .util import Logger, sanitize_filename
-from .ffmpeg import FFMpeg
+import aiohttp
+
 from .fc2 import FC2LiveStream, FC2WebSocket
+from .ffmpeg import FFMpeg
 from .hls import HLSDownloader
+from .util import Logger, sanitize_filename
 
 
 class FC2LiveDL:

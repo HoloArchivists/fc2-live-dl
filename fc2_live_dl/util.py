@@ -1,7 +1,7 @@
+import argparse
+import asyncio
 import re
 import sys
-import asyncio
-import argparse
 from datetime import datetime
 
 
