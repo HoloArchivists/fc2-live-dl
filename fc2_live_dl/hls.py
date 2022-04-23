@@ -1,7 +1,8 @@
 import asyncio
 import time
-from .util import Logger
+
 from .fc2 import FC2WebSocket
+from .util import Logger
 
 
 class HLSDownloader:

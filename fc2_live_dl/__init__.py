@@ -1,11 +1,11 @@
-from importlib.metadata import version
 import argparse
 import asyncio
 import json
 import sys
+from importlib.metadata import version
 
-from .util import Logger, SmartFormatter
 from .FC2LiveDL import FC2LiveDL
+from .util import Logger, SmartFormatter
 
 try:
     __version__ = version(__name__)
