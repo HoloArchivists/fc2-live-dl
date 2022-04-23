@@ -26,7 +26,7 @@ class AutoFC2:
 
     def get_config(self):
         try:
-            with open(self.args["config"], "r") as f:
+            with open(self.args["config"], "r", encoding="utf8") as f:
                 self.last_valid_config = json.load(f)
         except Exception as ex:
             if self.last_valid_config is None:
