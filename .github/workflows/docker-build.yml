@@ -1,7 +1,10 @@
 name: docker-build
 
 on:
-  push: {}
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
 
 jobs:
   docker:
