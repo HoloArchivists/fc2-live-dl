@@ -80,6 +80,10 @@ class FC2LiveDL:
     async def __aexit__(self, *err):
         self._logger.trace("exit", err)
         await self._session.close()
+        # Sleep for 250ms to allow SSL connections to close.
+        # See: https://github.com/aio-libs/aiohttp/issues/1925
+        # See: https://github.com/aio-libs/aiohttp/issues/4324
+        await asyncio.sleep(0.250)
         self._session = None
 
     async def download(self, channel_id):
