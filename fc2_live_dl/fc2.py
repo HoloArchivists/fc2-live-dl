@@ -247,10 +247,13 @@ class FC2LiveStream:
             control_token = json.loads(
                 base64.b64decode(jwt_body + "==").decode("utf-8")
             )
-            fc2id = control_token["fc2_id"]
-            if len(fc2id) > 0:
-                self._logger.debug("Logged in with ID", fc2id)
-            else:
+            try:
+                fc2id = control_token["fc2_id"]
+                if int(fc2id) > 0:
+                    self._logger.debug("Logged in with ID", fc2id)
+                else:
+                    self._logger.debug("Using anonymous account")
+            except:
                 self._logger.debug("Using anonymous account")
 
             return "%(url)s?control_token=%(control_token)s" % info
