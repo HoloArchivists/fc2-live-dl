@@ -12,6 +12,24 @@ class FFMpeg:
         self._ffmpeg = None
         self._flags = flags
 
+    @classmethod
+    async def is_available(cls):
+        """
+        Check if ffmpeg binary exists and is executable.
+        """
+
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                cls.FFMPEG_BIN,
+                "-version",
+                stdout=asyncio.subprocess.DEVNULL,
+                stderr=asyncio.subprocess.DEVNULL,
+            )
+            ret = await proc.wait()
+            return ret == 0
+        except FileNotFoundError:
+            return False
+
     async def __aenter__(self):
         self._loop = asyncio.get_running_loop()
         self._ffmpeg = await asyncio.create_subprocess_exec(

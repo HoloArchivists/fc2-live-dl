@@ -9,3 +9,5 @@ build/
 *.egg-info
 .install-cache/
 .vim/
+venv/
+.venv/

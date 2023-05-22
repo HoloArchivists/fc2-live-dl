@@ -87,6 +87,18 @@ class FC2LiveDL:
         self._session = None
 
     async def download(self, channel_id):
+        # Check ffmpeg
+        if not await FFMpeg.is_available():
+            if self.params["remux"]:
+                self._logger.error(
+                    "ffmpeg not found in PATH, remuxing is not available"
+                )
+                self._logger.error(
+                    "please install ffmpeg or disable remuxing with --no-remux"
+                )
+                raise FileNotFoundError(FFMpeg.FFMPEG_BIN)
+
+        # Initialize
         self._logger = Logger("fc2 " + channel_id)
         tasks = []
         fname_stream = None
