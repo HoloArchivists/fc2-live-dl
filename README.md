@@ -2,7 +2,7 @@
 
 > Tool to download FC2 live streams
 
-[![PyPI](https://img.shields.io/pypi/v/fc2-live-dl)](https://pypi.org/project/fc2-live-dl/ 'PyPI')
+[![PyPI](https://img.shields.io/pypi/v/fc2-live-dl)](https://pypi.org/project/fc2-live-dl/ "PyPI")
 
 ## Requirements
 
@@ -17,6 +17,8 @@
 - Remux recordings to .mp4/.m4a after it's done
 - Continuously monitor multiple streams in parallel and automatically start
   downloading when any of them goes online
+- Get notifications when streams come online via
+  [Apprise](https://github.com/caronc/apprise)
 
 ## Installation
 
@@ -152,6 +154,12 @@ Where the `autofc2.json` file looks like this:
     "extract_audio": true,
     "trust_env_proxy": false
   },
+  "notifications": [
+    {
+      "url": "discord://{WebhookID}/{WebhookToken}",
+      "message": "%(channel_name)s is live!\nhttps://live.fc2.com/%(channel_id)s"
+    }
+  ],
   "channels": {
     "91544481": {
       "_en_name": "Necoma Karin",
@@ -174,6 +182,19 @@ Arbitrary parameters can be specified by prefixing them with `_`, and will be
 accessible in `outtmpl`. This is useful for specifying custom filenames just
 like in the example above. In the example I'm using `_en_name`, but you can use
 anything as long as it starts with `_`.
+
+For notifications, the URL follows the
+[Apprise syntax](https://github.com/caronc/apprise#supported-notifications). For
+example, if you want to use Discord webhooks, use the `discord://` like so:
+
+- Original URL: `https://discord.com/api/webhooks/12341234/abcdabcd`
+- Turns into: `discord://12341234/abcdabcd`
+
+You can find out more about the different types of notifiers and how to
+configure them on
+[Apprise's GitHub](https://github.com/caronc/apprise#supported-notifications).
+
+The `message` of the notifications follow the same syntax as `outtmpl`.
 
 **NOTE Windows users**: When specifying a file path (e.g. for cookies) in the
 json, double up your backslashes, for example:

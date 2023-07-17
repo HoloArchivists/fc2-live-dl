@@ -158,7 +158,6 @@ Available format options:
         "keep_intermediates": args.keep_intermediates,
         "extract_audio": args.extract_audio,
         "trust_env_proxy": args.trust_env_proxy,
-        # Debug params
         "dump_websocket": args.dump_websocket,
     }
 

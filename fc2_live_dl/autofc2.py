@@ -1,9 +1,10 @@
 import argparse
 import asyncio
-import copy
 import json
 
-from .FC2LiveDL import FC2LiveDL
+import apprise
+
+from .FC2LiveDL import FC2LiveDL, CallbackEvent
 from .util import Logger
 
 
@@ -87,9 +88,34 @@ class AutoFC2:
             Logger.loglevel = Logger.LOGLEVELS[log_level]
             self.logger.info(f"Setting log level to {log_level}")
 
+    def handle_event(self, event):
+        try:
+            if event.type != CallbackEvent.Type.STREAM_ONLINE:
+                return
+
+            config = self.get_config()
+            finfo = FC2LiveDL.get_format_info(
+                meta=event.data,
+                params=event.instance.params,
+                sanitize=False,
+            )
+
+            if "notifications" not in config:
+                return
+
+            for cfg in config["notifications"]:
+                notifier = apprise.Apprise()
+                notifier.add(cfg["url"])
+                notifier.notify(body=cfg["message"] % finfo)
+
+        except Exception as ex:
+            self.logger.error("Error handling event")
+            self.logger.error(ex)
+            return
+
     async def handle_channel(self, channel_id):
         params = self.get_channel_params(channel_id)
-        async with FC2LiveDL(params) as fc2:
+        async with FC2LiveDL(params, self.handle_event) as fc2:
             await fc2.download(channel_id)
 
     async def _main(self):

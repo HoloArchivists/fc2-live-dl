@@ -7,6 +7,7 @@ import os
 import pathlib
 import time
 from datetime import datetime
+from enum import Enum
 
 import aiohttp
 
@@ -14,6 +15,25 @@ from .fc2 import FC2LiveStream, FC2WebSocket
 from .ffmpeg import FFMpeg
 from .hls import HLSDownloader
 from .util import Logger, sanitize_filename
+
+
+class CallbackEvent:
+    class Type(Enum):
+        WAITING_FOR_ONLINE = 1
+        STREAM_ONLINE = 2
+        WAITING_FOR_TARGET_QUALITY = 3
+        GOT_HLS_URL = 4
+        FRAGMENT_PROGRESS = 5
+        MUXING = 6
+
+    def __init__(self, instance, channel_id, type: Type, data=None):
+        self.instance = instance
+        self.channel_id = channel_id
+        self.type = type
+        self.data = data
+
+    def __repr__(self):
+        return f"CallbackEvent({self.channel_id}, {self.type}, {self.data})"
 
 
 class FC2LiveDL:
@@ -47,14 +67,14 @@ class FC2LiveDL:
         "keep_intermediates": False,
         "extract_audio": False,
         "trust_env_proxy": False,
-        # Debug params
         "dump_websocket": False,
     }
 
-    def __init__(self, params={}):
+    def __init__(self, params={}, callback=None):
         self._logger = Logger("fc2")
         self._session = None
         self._background_tasks = []
+        self._callback = callback if callback is not None else lambda e: None
 
         self.params = json.loads(json.dumps(self.DEFAULT_PARAMS))
         self.params.update(params)
@@ -111,9 +131,24 @@ class FC2LiveDL:
             if not is_online:
                 if not self.params["wait_for_live"]:
                     raise FC2LiveStream.NotOnlineException()
+                self._callback(
+                    CallbackEvent(
+                        self,
+                        channel_id,
+                        CallbackEvent.Type.WAITING_FOR_ONLINE,
+                    )
+                )
                 await live.wait_for_online(self.params["wait_poll_interval"])
 
             meta = await live.get_meta(refetch=False)
+            self._callback(
+                CallbackEvent(
+                    self,
+                    channel_id,
+                    CallbackEvent.Type.STREAM_ONLINE,
+                    meta,
+                )
+            )
 
             fname_info = self._prepare_file(meta, "info.json")
             fname_thumb = self._prepare_file(meta, "png")
@@ -170,6 +205,18 @@ class FC2LiveDL:
                                 self.params["wait_for_quality_timeout"],
                             ),
                         )
+                        self._callback(
+                            CallbackEvent(
+                                self,
+                                channel_id,
+                                CallbackEvent.Type.WAITING_FOR_TARGET_QUALITY,
+                                {
+                                    "requested": self._format_mode(mode),
+                                    "available": self._format_mode(got_mode),
+                                    "hls_info": hls_info,
+                                },
+                            )
+                        )
                         await asyncio.sleep(1)
 
                 if got_mode != mode:
@@ -178,6 +225,19 @@ class FC2LiveDL:
                         self._format_mode(got_mode),
                     )
 
+                self._callback(
+                    CallbackEvent(
+                        self,
+                        channel_id,
+                        CallbackEvent.Type.GOT_HLS_URL,
+                        {
+                            "requested": self._format_mode(mode),
+                            "available": self._format_mode(got_mode),
+                            "hls_url": hls_url,
+                        },
+                    )
+                )
+
                 self._logger.info("Received HLS info")
 
                 coros = []
@@ -185,7 +245,7 @@ class FC2LiveDL:
                 coros.append(ws.wait_disconnection())
 
                 self._logger.info("Writing stream to", fname_stream)
-                coros.append(self._download_stream(hls_url, fname_stream))
+                coros.append(self._download_stream(channel_id, hls_url, fname_stream))
 
                 if self.params["write_chat"]:
                     self._logger.info("Writing chat to", fname_chat)
@@ -228,12 +288,14 @@ class FC2LiveDL:
             and os.path.isfile(fname_stream)
         ):
             self._logger.info("Remuxing stream to", fname_muxed)
-            await self._remux_stream(fname_stream, fname_muxed)
+            await self._remux_stream(channel_id, fname_stream, fname_muxed)
             self._logger.debug("Finished remuxing stream", fname_muxed)
 
             if self.params["extract_audio"]:
                 self._logger.info("Extracting audio to", fname_audio)
-                await self._remux_stream(fname_stream, fname_audio, extra_flags=["-vn"])
+                await self._remux_stream(
+                    channel_id, fname_stream, fname_audio, extra_flags=["-vn"]
+                )
                 self._logger.debug("Finished remuxing stream", fname_muxed)
 
             if not self.params["keep_intermediates"] and os.path.isfile(fname_muxed):
@@ -246,7 +308,7 @@ class FC2LiveDL:
 
         self._logger.info("Done")
 
-    async def _download_stream(self, hls_url, fname):
+    async def _download_stream(self, channel_id, hls_url, fname):
         def sizeof_fmt(num, suffix="B"):
             for unit in ["", "Ki", "Mi", "Gi", "Ti", "Pi", "Ei", "Zi"]:
                 if abs(num) < 1024.0:
@@ -272,12 +334,23 @@ class FC2LiveDL:
                             sizeof_fmt(total_size),
                             inline=True,
                         )
+                        self._callback(
+                            CallbackEvent(
+                                self,
+                                channel_id,
+                                CallbackEvent.Type.FRAGMENT_PROGRESS,
+                                {
+                                    "fragments_downloaded": n_frags,
+                                    "total_size": total_size,
+                                },
+                            )
+                        )
         except asyncio.CancelledError:
             self._logger.debug("_download_stream cancelled")
         except Exception as ex:
             self._logger.error(ex)
 
-    async def _remux_stream(self, ifname, ofname, *, extra_flags=[]):
+    async def _remux_stream(self, channel_id, ifname, ofname, *, extra_flags=[]):
         mux_flags = [
             "-y",
             "-hide_banner",
@@ -295,6 +368,7 @@ class FC2LiveDL:
         ]
         async with FFMpeg(mux_flags) as mux:
             self._logger.info("Remuxing stream", inline=True)
+            self._callback(CallbackEvent(self, channel_id, CallbackEvent.Type.MUXING))
             while await mux.print_status():
                 pass
 
@@ -383,7 +457,8 @@ class FC2LiveDL:
         fpath.parent.mkdir(parents=True, exist_ok=True)
         return fname
 
-    def _format_outtmpl(self, meta=None, overrides={}):
+    @classmethod
+    def get_format_info(cls, *, meta=None, params={}, sanitize=False):
         finfo = {
             "channel_id": "",
             "channel_name": "",
@@ -393,15 +468,25 @@ class FC2LiveDL:
             "ext": "",
         }
 
+        sanitizer = sanitize_filename if sanitize else lambda x: x
+
         if meta is not None:
-            finfo["channel_id"] = sanitize_filename(meta["channel_data"]["channelid"])
-            finfo["channel_name"] = sanitize_filename(meta["profile_data"]["name"])
-            finfo["title"] = sanitize_filename(meta["channel_data"]["title"])
+            finfo["channel_id"] = sanitizer(meta["channel_data"]["channelid"])
+            finfo["channel_name"] = sanitizer(meta["profile_data"]["name"])
+            finfo["title"] = sanitizer(meta["channel_data"]["title"])
 
-        for key in self.params:
+        for key in params:
             if key.startswith("_"):
-                finfo[key] = self.params[key]
+                finfo[key] = params[key]
 
+        return finfo
+
+    def _format_outtmpl(self, meta=None, overrides={}):
+        finfo = FC2LiveDL.get_format_info(
+            meta=meta,
+            params=self.params,
+            sanitize=True,
+        )
         finfo.update(overrides)
 
         formatted = self.params["outtmpl"] % finfo
