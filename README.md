@@ -19,6 +19,7 @@
   downloading when any of them goes online
 - Get notifications when streams come online via
   [Apprise](https://github.com/caronc/apprise)
+- Prometheus-compatible metrics
 
 ## Installation
 
@@ -135,7 +136,12 @@ Where the `autofc2.json` file looks like this:
 ```json
 {
   "autofc2": {
-    "log_level": "info"
+    "log_level": "info",
+    "metrics": {
+      "host": "0.0.0.0",
+      "port": 9090,
+      "path": "/metrics"
+    }
   },
   "default_params": {
     "quality": "3Mbps",
@@ -195,6 +201,9 @@ configure them on
 [Apprise's GitHub](https://github.com/caronc/apprise#supported-notifications).
 
 The `message` of the notifications follow the same syntax as `outtmpl`.
+
+Prometheus-compatible metrics is optionally configurable with `autofc2.metrics`.
+If you don't want a metrics webserver, remove the `autofc2.metrics` key.
 
 **NOTE Windows users**: When specifying a file path (e.g. for cookies) in the
 json, double up your backslashes, for example:

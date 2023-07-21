@@ -3,9 +3,69 @@ import asyncio
 import json
 
 import apprise
+from aiohttp import web
 
 from .FC2LiveDL import FC2LiveDL, CallbackEvent
 from .util import Logger
+
+
+class Metrics:
+    prefix = "autofc2_"
+
+    def __init__(self):
+        self._lock = asyncio.Lock()
+        self._channel_metrics = {}
+
+    def _reset(self, channel_id):
+        self._channel_metrics[channel_id] = {
+            "event_type": 0,
+            "fragments_downloaded": 0,
+            "total_downloaded": 0,
+        }
+
+    async def reset(self, channel_id):
+        async with self._lock:
+            self._reset(channel_id)
+
+    async def update(self, event: CallbackEvent):
+        async with self._lock:
+            if event.channel_id not in self._channel_metrics:
+                self._reset(event.channel_id)
+
+            self._channel_metrics[event.channel_id]["event_type"] = event.type
+            if event.type == CallbackEvent.Type.FRAGMENT_PROGRESS:
+                self._channel_metrics[event.channel_id][
+                    "fragments_downloaded"
+                ] = event.data["fragments_downloaded"]
+                self._channel_metrics[event.channel_id][
+                    "total_downloaded"
+                ] = event.data["total_size"]
+
+    async def promstr(self):
+        async with self._lock:
+            res = ""
+            for channel_id, metrics in self._channel_metrics.items():
+                label = f'channel_id="{channel_id}"'
+
+                for typ in CallbackEvent.Type:
+                    val = 1 if metrics["event_type"] == typ else 0
+                    res += f'{self.prefix}event{{{label},type="{typ.name.lower()}"}} {val}\n'
+
+                res += f"{self.prefix}fragments_downloaded{{{label}}} {metrics['fragments_downloaded']}\n"
+                res += f"{self.prefix}bytes_downloaded{{{label}}} {metrics['total_downloaded']}\n"
+
+            return res
+
+    async def http_server(self, host, port, path):
+        async def handler(request):
+            return web.Response(text=await self.promstr(), content_type="text/plain")
+
+        app = web.Application()
+        app.add_routes([web.get(path, handler)])
+        runner = web.AppRunner(app)
+        await runner.setup()
+        site = web.TCPSite(runner, host, port)
+        await site.start()
 
 
 class AutoFC2:
@@ -21,6 +81,7 @@ class AutoFC2:
         self.logger = Logger("autofc2")
         self.logger.info("starting")
         self.last_valid_config = None
+        self.metrics = Metrics()
 
         # Disable progress spinners
         Logger.print_inline = False
@@ -88,8 +149,10 @@ class AutoFC2:
             Logger.loglevel = Logger.LOGLEVELS[log_level]
             self.logger.info(f"Setting log level to {log_level}")
 
-    def handle_event(self, event):
+    async def handle_event(self, event):
         try:
+            await self.metrics.update(event)
+
             if event.type != CallbackEvent.Type.STREAM_ONLINE:
                 return
 
@@ -106,7 +169,7 @@ class AutoFC2:
             for cfg in config["notifications"]:
                 notifier = apprise.Apprise()
                 notifier.add(cfg["url"])
-                notifier.notify(body=cfg["message"] % finfo)
+                await notifier.async_notify(body=cfg["message"] % finfo)
 
         except Exception as ex:
             self.logger.error("Error handling event")
@@ -116,17 +179,36 @@ class AutoFC2:
     async def handle_channel(self, channel_id):
         params = self.get_channel_params(channel_id)
         async with FC2LiveDL(params, self.handle_event) as fc2:
+            await self.metrics.reset(channel_id)
             await fc2.download(channel_id)
+
+    async def metrics_webserver(self):
+        config = self.get_config()
+        if "autofc2" not in config or "metrics" not in config["autofc2"]:
+            # Stall forever
+            return await asyncio.Future()
+
+        metrics_cfg = config["autofc2"]["metrics"]
+
+        self.logger.info(
+            f"Metrics available at http://{metrics_cfg['host']}:{metrics_cfg['port']}{metrics_cfg['path']}"
+        )
+        return await self.metrics.http_server(
+            metrics_cfg["host"],
+            metrics_cfg["port"],
+            metrics_cfg["path"],
+        )
 
     async def _main(self):
         tasks = {}
         sleep_task = None
         config_task = asyncio.create_task(self.config_watcher())
+        metrics_task = asyncio.create_task(self.metrics_webserver())
         try:
             while True:
                 self.reload_channels_list(tasks)
                 sleep_task = asyncio.create_task(asyncio.sleep(1))
-                task_arr = [config_task, sleep_task]
+                task_arr = [config_task, sleep_task, metrics_task]
                 for channel in tasks.keys():
                     if tasks[channel].done():
                         tasks[channel] = asyncio.create_task(

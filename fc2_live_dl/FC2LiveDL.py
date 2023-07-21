@@ -2,6 +2,7 @@
 
 import asyncio
 import http.cookies
+import inspect
 import json
 import os
 import pathlib
@@ -25,6 +26,9 @@ class CallbackEvent:
         GOT_HLS_URL = 4
         FRAGMENT_PROGRESS = 5
         MUXING = 6
+
+        def __str__(self):
+            return self.name
 
     def __init__(self, instance, channel_id, type: Type, data=None):
         self.instance = instance
@@ -74,7 +78,9 @@ class FC2LiveDL:
         self._logger = Logger("fc2")
         self._session = None
         self._background_tasks = []
-        self._callback = callback if callback is not None else lambda e: None
+
+        self._callback = callback if callback is not None else lambda event: None
+        self._callback_is_coroutine = inspect.iscoroutinefunction(self._callback)
 
         self.params = json.loads(json.dumps(self.DEFAULT_PARAMS))
         self.params.update(params)
@@ -107,14 +113,19 @@ class FC2LiveDL:
         self._session = None
 
     def _callback_handler(
-        self, instance, channel_id, type: CallbackEvent.Type, data=None
+        self,
+        instance,
+        channel_id,
+        type: CallbackEvent.Type,
+        data=None,
     ):
+        event = CallbackEvent(instance, channel_id, type, data)
         loop = asyncio.get_running_loop()
-        loop.run_in_executor(
-            None,
-            self._callback,
-            CallbackEvent(instance, channel_id, type, data),
-        )
+
+        if self._callback_is_coroutine:
+            loop.create_task(self._callback(event))
+        else:
+            loop.run_in_executor(None, self._callback, event)
 
     async def download(self, channel_id):
         # Check ffmpeg
