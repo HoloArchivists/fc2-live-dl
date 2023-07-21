@@ -106,6 +106,16 @@ class FC2LiveDL:
         await asyncio.sleep(0.250)
         self._session = None
 
+    def _callback_handler(
+        self, instance, channel_id, type: CallbackEvent.Type, data=None
+    ):
+        loop = asyncio.get_running_loop()
+        loop.run_in_executor(
+            None,
+            self._callback,
+            CallbackEvent(instance, channel_id, type, data),
+        )
+
     async def download(self, channel_id):
         # Check ffmpeg
         if not await FFMpeg.is_available():
@@ -131,23 +141,19 @@ class FC2LiveDL:
             if not is_online:
                 if not self.params["wait_for_live"]:
                     raise FC2LiveStream.NotOnlineException()
-                self._callback(
-                    CallbackEvent(
-                        self,
-                        channel_id,
-                        CallbackEvent.Type.WAITING_FOR_ONLINE,
-                    )
+                self._callback_handler(
+                    self,
+                    channel_id,
+                    CallbackEvent.Type.WAITING_FOR_ONLINE,
                 )
                 await live.wait_for_online(self.params["wait_poll_interval"])
 
             meta = await live.get_meta(refetch=False)
-            self._callback(
-                CallbackEvent(
-                    self,
-                    channel_id,
-                    CallbackEvent.Type.STREAM_ONLINE,
-                    meta,
-                )
+            self._callback_handler(
+                self,
+                channel_id,
+                CallbackEvent.Type.STREAM_ONLINE,
+                meta,
             )
 
             fname_info = self._prepare_file(meta, "info.json")
@@ -171,11 +177,14 @@ class FC2LiveDL:
 
             if self.params["write_thumbnail"]:
                 self._logger.info("Writing thumbnail to", fname_thumb)
-                thumb_url = meta["channel_data"]["image"]
-                async with self._session.get(thumb_url) as resp:
-                    with open(fname_thumb, "wb") as f:
-                        async for data in resp.content.iter_chunked(1024):
-                            f.write(data)
+                try:
+                    thumb_url = meta["channel_data"]["image"]
+                    async with self._session.get(thumb_url) as resp:
+                        with open(fname_thumb, "wb") as f:
+                            async for data in resp.content.iter_chunked(1024):
+                                f.write(data)
+                except Exception as e:
+                    self._logger.error("Failed to download thumbnail", e)
 
             ws_url = await live.get_websocket_url()
             self._logger.info("Found websocket url")
@@ -205,17 +214,15 @@ class FC2LiveDL:
                                 self.params["wait_for_quality_timeout"],
                             ),
                         )
-                        self._callback(
-                            CallbackEvent(
-                                self,
-                                channel_id,
-                                CallbackEvent.Type.WAITING_FOR_TARGET_QUALITY,
-                                {
-                                    "requested": self._format_mode(mode),
-                                    "available": self._format_mode(got_mode),
-                                    "hls_info": hls_info,
-                                },
-                            )
+                        self._callback_handler(
+                            self,
+                            channel_id,
+                            CallbackEvent.Type.WAITING_FOR_TARGET_QUALITY,
+                            {
+                                "requested": self._format_mode(mode),
+                                "available": self._format_mode(got_mode),
+                                "hls_info": hls_info,
+                            },
                         )
                         await asyncio.sleep(1)
 
@@ -225,17 +232,15 @@ class FC2LiveDL:
                         self._format_mode(got_mode),
                     )
 
-                self._callback(
-                    CallbackEvent(
-                        self,
-                        channel_id,
-                        CallbackEvent.Type.GOT_HLS_URL,
-                        {
-                            "requested": self._format_mode(mode),
-                            "available": self._format_mode(got_mode),
-                            "hls_url": hls_url,
-                        },
-                    )
+                self._callback_handler(
+                    self,
+                    channel_id,
+                    CallbackEvent.Type.GOT_HLS_URL,
+                    {
+                        "requested": self._format_mode(mode),
+                        "available": self._format_mode(got_mode),
+                        "hls_url": hls_url,
+                    },
                 )
 
                 self._logger.info("Received HLS info")
@@ -334,16 +339,14 @@ class FC2LiveDL:
                             sizeof_fmt(total_size),
                             inline=True,
                         )
-                        self._callback(
-                            CallbackEvent(
-                                self,
-                                channel_id,
-                                CallbackEvent.Type.FRAGMENT_PROGRESS,
-                                {
-                                    "fragments_downloaded": n_frags,
-                                    "total_size": total_size,
-                                },
-                            )
+                        self._callback_handler(
+                            self,
+                            channel_id,
+                            CallbackEvent.Type.FRAGMENT_PROGRESS,
+                            {
+                                "fragments_downloaded": n_frags,
+                                "total_size": total_size,
+                            },
                         )
         except asyncio.CancelledError:
             self._logger.debug("_download_stream cancelled")
@@ -368,7 +371,7 @@ class FC2LiveDL:
         ]
         async with FFMpeg(mux_flags) as mux:
             self._logger.info("Remuxing stream", inline=True)
-            self._callback(CallbackEvent(self, channel_id, CallbackEvent.Type.MUXING))
+            self._callback_handler(self, channel_id, CallbackEvent.Type.MUXING)
             while await mux.print_status():
                 pass
 

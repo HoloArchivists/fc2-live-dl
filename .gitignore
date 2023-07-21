@@ -3,6 +3,7 @@
 *.mp4
 *.m4a
 *.json
+*.png
 __pycache__/
 dist/
 build/
