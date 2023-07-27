@@ -251,6 +251,7 @@ class FC2LiveDL:
                         "requested": self._format_mode(mode),
                         "available": self._format_mode(got_mode),
                         "hls_url": hls_url,
+                        "meta": meta,
                     },
                 )
 

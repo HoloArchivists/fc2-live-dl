@@ -153,12 +153,12 @@ class AutoFC2:
         try:
             await self.metrics.update(event)
 
-            if event.type != CallbackEvent.Type.STREAM_ONLINE:
+            if event.type != CallbackEvent.Type.GOT_HLS_URL:
                 return
 
             config = self.get_config()
             finfo = FC2LiveDL.get_format_info(
-                meta=event.data,
+                meta=event.data["meta"],
                 params=event.instance.params,
                 sanitize=False,
             )
