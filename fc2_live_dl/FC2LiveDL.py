@@ -2,6 +2,7 @@
 
 import asyncio
 import http.cookies
+import traceback
 import inspect
 import json
 import os
@@ -287,8 +288,9 @@ class FC2LiveDL:
                     raise exited.exception()
         except asyncio.CancelledError:
             self._logger.error("Interrupted by user")
-        except FC2WebSocket.ServerDisconnection as ex:
-            self._logger.error(ex)
+        except FC2WebSocket.ServerDisconnection:
+            self._logger.error("Server disconnection")
+            self._logger.error(traceback.format_exc())
         except FC2WebSocket.StreamEnded:
             self._logger.info("Stream ended")
         finally:

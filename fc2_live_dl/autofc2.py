@@ -1,6 +1,8 @@
+import traceback
 import argparse
 import asyncio
 import json
+import time
 
 import apprise
 from aiohttp import web
@@ -68,6 +70,16 @@ class Metrics:
         await site.start()
 
 
+class ChannelState:
+    def __init__(self):
+        self._last_startup_time = 0
+
+    async def wait_for_debounce(self, duration):
+        diff = time.time() - self._last_startup_time
+        if diff < duration:
+            await asyncio.sleep(duration - diff)
+        self._last_startup_time = time.time()
+
 class AutoFC2:
     default_args = {
         "config": "autofc2.json",
@@ -82,6 +94,7 @@ class AutoFC2:
         self.logger.info("starting")
         self.last_valid_config = None
         self.metrics = Metrics()
+        self.channel_state = {}
 
         # Disable progress spinners
         Logger.print_inline = False
@@ -124,6 +137,18 @@ class AutoFC2:
         for channel_id in tasks.keys():
             if channel_id not in channels:
                 tasks[channel_id].cancel()
+
+    async def debounce_channel(self, channel_id):
+        config = self.get_config()
+        debounce_time = 0
+        if 'autofc2' in config and 'debounce_time' in config['autofc2']:
+            debounce_time = config['autofc2']['debounce_time']
+
+        if channel_id not in self.channel_state:
+            self.channel_state[channel_id] = ChannelState()
+
+        if debounce_time > 0:
+            await self.channel_state[channel_id].wait_for_debounce(debounce_time)
 
     async def config_watcher(self):
         last_log_level = Logger.loglevel
@@ -171,14 +196,15 @@ class AutoFC2:
                 notifier.add(cfg["url"])
                 await notifier.async_notify(body=cfg["message"] % finfo)
 
-        except Exception as ex:
+        except:
             self.logger.error("Error handling event")
-            self.logger.error(ex)
+            self.logger.error(traceback.format_exc())
             return
 
     async def handle_channel(self, channel_id):
         params = self.get_channel_params(channel_id)
         async with FC2LiveDL(params, self.handle_event) as fc2:
+            await self.debounce_channel(channel_id)
             await self.metrics.reset(channel_id)
             await fc2.download(channel_id)
 

@@ -137,6 +137,7 @@ Where the `autofc2.json` file looks like this:
 {
   "autofc2": {
     "log_level": "info",
+    "debounce_time": 300,
     "metrics": {
       "host": "0.0.0.0",
       "port": 9090,
