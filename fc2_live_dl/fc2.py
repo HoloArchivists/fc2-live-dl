@@ -271,6 +271,7 @@ class FC2LiveStream:
         }
         self._logger.trace("get_meta>", url, data)
         async with self._session.post(url, data=data) as resp:
+            resp.raise_for_status()
             # FC2 returns text/javascript instead of application/json
             # Content type is specified so aiohttp knows what to expect
             data = await resp.json(content_type="text/javascript")
