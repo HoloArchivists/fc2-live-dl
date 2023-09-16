@@ -83,9 +83,15 @@ class FC2WebSocket:
 
     async def _main_loop(self):
         while True:
-            msg = await asyncio.wait_for(
-                self._ws.receive_json(), self.heartbeat_interval
-            )
+            try:
+                msg = await asyncio.wait_for(
+                    self._ws.receive_json(), self.heartbeat_interval
+                )
+            except asyncio.TimeoutError:
+                self._logger.debug(f'Got no messages for {self.heartbeat_interval} seconds, sending heartbeat')
+                await self._try_heartbeat()
+                continue
+
             self._logger.trace("<", json.dumps(msg)[:100])
             if self._output_file is not None:
                 self._output_file.write("< ")
