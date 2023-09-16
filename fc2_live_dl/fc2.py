@@ -200,6 +200,9 @@ class FC2WebSocket:
 
 
 class FC2LiveStream:
+
+    MAX_LIVE_CHECK_INTERVAL = 300
+
     def __init__(self, session, channel_id):
         self._meta = None
         self._session = session
@@ -207,8 +210,22 @@ class FC2LiveStream:
         self.channel_id = channel_id
 
     async def wait_for_online(self, interval):
-        while not await self.is_online():
-            for _ in range(interval):
+        current_interval = interval
+        while True:
+            try:
+                if await self.is_online():
+                    break
+            except Exception as e:
+                description = f'{e.__class__.__name__}: {e}'
+                self._logger.warn(f'Error when checking if stream is live: {description}')
+                current_interval = min(current_interval * 2, self.MAX_LIVE_CHECK_INTERVAL)
+                self._logger.debug(f'Next check in {current_interval} seconds')
+            else:
+                if current_interval != interval:
+                    self._logger.debug(f'Successfully fetched live status, restoring check interval of {interval} seconds')
+                    current_interval = interval
+
+            for _ in range(current_interval):
                 self._logger.info("Waiting for stream", inline=True, spin=True)
                 await asyncio.sleep(1)
 
@@ -271,6 +288,7 @@ class FC2LiveStream:
         }
         self._logger.trace("get_meta>", url, data)
         async with self._session.post(url, data=data) as resp:
+            resp.raise_for_status()
             # FC2 returns text/javascript instead of application/json
             # Content type is specified so aiohttp knows what to expect
             data = await resp.json(content_type="text/javascript")
