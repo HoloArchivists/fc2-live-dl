@@ -39,6 +39,13 @@ class HLSDownloader:
                 if len(line) > 0 and not line[0] == "#"
             ]
 
+    @staticmethod
+    def _get_fragment_id(fragment_url):
+        """Take url and return filename part of it"""
+        if not fragment_url:
+            return fragment_url
+        return fragment_url.split('?')[0].split('/')[-1]
+
     async def _fill_queue(self):
         last_fragment_timestamp = time.time()
         last_fragment = None
@@ -46,12 +53,12 @@ class HLSDownloader:
         while True:
             try:
                 frags = await self._get_fragment_urls()
+                frags_numbers = [self._get_fragment_id(url) for url in frags]
 
-                new_idx = 0
                 try:
-                    new_idx = 1 + frags.index(last_fragment)
-                except:
-                    pass
+                    new_idx = 1 + frags_numbers.index(self._get_fragment_id(last_fragment))
+                except ValueError:
+                    new_idx = 0
 
                 n_new = len(frags) - new_idx
                 if n_new > 0:
