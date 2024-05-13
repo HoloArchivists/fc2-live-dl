@@ -244,6 +244,7 @@ class AutoFC2:
                     task_arr.append(tasks[channel])
 
                 await asyncio.wait(task_arr, return_when=asyncio.FIRST_COMPLETED)
+                await asyncio.sleep(1)
         except asyncio.CancelledError:
             self.logger.error("Interrupted")
         finally:
