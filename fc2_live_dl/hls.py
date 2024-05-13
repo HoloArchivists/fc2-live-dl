@@ -44,7 +44,7 @@ class HLSDownloader:
         """Take url and return filename part of it"""
         if not fragment_url:
             return fragment_url
-        return fragment_url.split('?')[0].split('/')[-1]
+        return fragment_url.split("?")[0].split("/")[-1]
 
     async def _fill_queue(self):
         last_fragment_timestamp = time.time()
@@ -56,7 +56,9 @@ class HLSDownloader:
                 frags_numbers = [self._get_fragment_id(url) for url in frags]
 
                 try:
-                    new_idx = 1 + frags_numbers.index(self._get_fragment_id(last_fragment))
+                    new_idx = 1 + frags_numbers.index(
+                        self._get_fragment_id(last_fragment)
+                    )
                 except ValueError:
                     new_idx = 0
 

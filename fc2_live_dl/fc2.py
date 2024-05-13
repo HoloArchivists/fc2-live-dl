@@ -88,7 +88,9 @@ class FC2WebSocket:
                     self._ws.receive_json(), self.heartbeat_interval
                 )
             except asyncio.TimeoutError:
-                self._logger.debug(f'Got no messages for {self.heartbeat_interval} seconds, sending heartbeat')
+                self._logger.debug(
+                    f"Got no messages for {self.heartbeat_interval} seconds, sending heartbeat"
+                )
                 await self._try_heartbeat()
                 continue
 
@@ -222,13 +224,19 @@ class FC2LiveStream:
                 if await self.is_online():
                     break
             except Exception as e:
-                description = f'{e.__class__.__name__}: {e}'
-                self._logger.warn(f'Error when checking if stream is live: {description}')
-                current_interval = min(current_interval * 2, self.MAX_LIVE_CHECK_INTERVAL)
-                self._logger.debug(f'Next check in {current_interval} seconds')
+                description = f"{e.__class__.__name__}: {e}"
+                self._logger.warn(
+                    f"Error when checking if stream is live: {description}"
+                )
+                current_interval = min(
+                    current_interval * 2, self.MAX_LIVE_CHECK_INTERVAL
+                )
+                self._logger.debug(f"Next check in {current_interval} seconds")
             else:
                 if current_interval != interval:
-                    self._logger.debug(f'Successfully fetched live status, restoring check interval of {interval} seconds')
+                    self._logger.debug(
+                        f"Successfully fetched live status, restoring check interval of {interval} seconds"
+                    )
                     current_interval = interval
 
             for _ in range(current_interval):

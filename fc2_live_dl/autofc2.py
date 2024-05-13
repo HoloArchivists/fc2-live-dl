@@ -36,12 +36,12 @@ class Metrics:
 
             self._channel_metrics[event.channel_id]["event_type"] = event.type
             if event.type == CallbackEvent.Type.FRAGMENT_PROGRESS:
-                self._channel_metrics[event.channel_id][
-                    "fragments_downloaded"
-                ] = event.data["fragments_downloaded"]
-                self._channel_metrics[event.channel_id][
-                    "total_downloaded"
-                ] = event.data["total_size"]
+                self._channel_metrics[event.channel_id]["fragments_downloaded"] = (
+                    event.data["fragments_downloaded"]
+                )
+                self._channel_metrics[event.channel_id]["total_downloaded"] = (
+                    event.data["total_size"]
+                )
 
     async def promstr(self):
         async with self._lock:
@@ -79,6 +79,7 @@ class ChannelState:
         if diff < duration:
             await asyncio.sleep(duration - diff)
         self._last_startup_time = time.time()
+
 
 class AutoFC2:
     default_args = {
@@ -141,8 +142,8 @@ class AutoFC2:
     async def debounce_channel(self, channel_id):
         config = self.get_config()
         debounce_time = 0
-        if 'autofc2' in config and 'debounce_time' in config['autofc2']:
-            debounce_time = config['autofc2']['debounce_time']
+        if "autofc2" in config and "debounce_time" in config["autofc2"]:
+            debounce_time = config["autofc2"]["debounce_time"]
 
         if channel_id not in self.channel_state:
             self.channel_state[channel_id] = ChannelState()

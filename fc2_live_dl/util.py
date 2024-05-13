@@ -120,9 +120,11 @@ class SmartFormatter(argparse.HelpFormatter):
         elif text.startswith("A|"):
             return self.flatten(
                 [
-                    argparse.HelpFormatter._split_lines(self, x, width)
-                    if len(x) >= width
-                    else x
+                    (
+                        argparse.HelpFormatter._split_lines(self, x, width)
+                        if len(x) >= width
+                        else x
+                    )
                     for x in text[2:].splitlines()
                 ]
             )
